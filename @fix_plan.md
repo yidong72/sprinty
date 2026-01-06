@@ -58,13 +58,16 @@
   - [x] `sprint_state.json` - Current sprint state (via init_sprint_state)
 
 ## Medium Priority (Phase 4: Metrics)
-- [ ] Create `lib/metrics_collector.sh`:
-  - [ ] `calculate_burndown()` - Sprint burndown data
-  - [ ] `calculate_velocity()` - Team velocity metrics
-  - [ ] `get_sprint_summary()` - Sprint statistics
-- [ ] Add CLI dashboard output:
-  - [ ] `sprinty status` - Show current state
-  - [ ] `sprinty metrics` - Show burndown/velocity
+- [x] Create `lib/metrics_collector.sh`:
+  - [x] `calculate_burndown()` - Sprint burndown data
+  - [x] `calculate_velocity()` - Team velocity metrics
+  - [x] `get_sprint_summary()` - Sprint statistics
+  - [x] `get_project_metrics()` - Overall project metrics
+  - [x] `show_metrics_dashboard()` - Full metrics dashboard display
+  - [x] `record_sprint_velocity()` - Track velocity history
+- [x] Add CLI dashboard output:
+  - [x] `sprinty status` - Show current state
+  - [x] `sprinty metrics` - Show burndown/velocity dashboard
 
 ## Low Priority (Phase 5: Polish)
 - [x] Add CLI commands to `sprinty.sh`:
@@ -94,6 +97,7 @@
 - [x] Phase 2 Agent Integration - agent_adapter.sh and all role prompts created
 - [x] Phase 3 Orchestration - sprinty.sh main orchestrator and done_detector.sh
 - [x] CLI commands implemented (init, run, status, backlog, metrics)
+- [x] Phase 4 Metrics - metrics_collector.sh with burndown, velocity, dashboard
 
 ## Notes
 - **Copy patterns from `../ralph-cursor-agent/`** - Don't reinvent

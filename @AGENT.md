@@ -15,7 +15,7 @@ sprinty/
 │   ├── sprint_manager.sh      # ✅ Sprint state management
 │   ├── agent_adapter.sh       # ✅ cursor-agent integration
 │   ├── done_detector.sh       # ✅ Completion detection
-│   └── metrics_collector.sh   # TODO: Burndown, velocity
+│   └── metrics_collector.sh   # ✅ Burndown, velocity, dashboard
 ├── prompts/
 │   ├── product_owner.md       # ✅ PO agent prompt
 │   ├── developer.md           # ✅ Developer agent prompt
@@ -189,6 +189,42 @@ analyze_output_for_completion "$output_file" 5
 show_exit_status
 ```
 
+### lib/metrics_collector.sh
+Sprint metrics, burndown charts, and velocity tracking.
+```bash
+source lib/utils.sh
+source lib/backlog_manager.sh
+source lib/sprint_manager.sh
+source lib/metrics_collector.sh
+
+# Calculate burndown for current sprint
+burndown=$(calculate_burndown)
+echo "$burndown" | jq '.completion_percentage'
+
+# Calculate team velocity
+velocity=$(calculate_velocity 5)  # Last 5 sprints
+echo "$velocity" | jq '.average_velocity'
+
+# Get sprint summary
+summary=$(get_sprint_summary)
+echo "$summary" | jq '.health_score'
+
+# Get overall project metrics
+project=$(get_project_metrics)
+echo "$project" | jq '.completion_percentage'
+
+# Record sprint velocity after sprint ends
+record_sprint_velocity 1 15 20  # sprint 1, 15 done, 20 planned
+
+# Display functions
+show_burndown_chart          # ASCII burndown chart
+show_velocity_metrics        # Velocity stats
+show_metrics_dashboard       # Full dashboard
+
+# Save metrics snapshot
+save_metrics_snapshot
+```
+
 ## Configuration
 Default configuration is in `templates/config.json`. Copy to `.sprinty/config.json` for project-specific settings.
 
@@ -240,6 +276,6 @@ Key settings:
 2. ~~Create agent prompts in `prompts/`~~ ✅
 3. ~~Create `lib/done_detector.sh` for completion detection~~ ✅
 4. ~~Create main orchestrator `sprinty.sh`~~ ✅
-5. Create `lib/metrics_collector.sh` for sprint metrics
+5. ~~Create `lib/metrics_collector.sh` for sprint metrics~~ ✅
 6. Add unit tests (bats)
 7. Create README.md documentation

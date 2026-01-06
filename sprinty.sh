@@ -35,6 +35,7 @@ source "$SCRIPT_DIR/lib/backlog_manager.sh"
 source "$SCRIPT_DIR/lib/sprint_manager.sh"
 source "$SCRIPT_DIR/lib/agent_adapter.sh"
 source "$SCRIPT_DIR/lib/done_detector.sh"
+source "$SCRIPT_DIR/lib/metrics_collector.sh"
 
 # ============================================================================
 # CONFIGURATION
@@ -401,6 +402,11 @@ execute_sprint() {
         return 10  # Circuit breaker
     fi
     
+    # Record sprint velocity before ending
+    local sprint_done_points=$(get_sprint_completed_points "$sprint_id")
+    local sprint_total_points=$(get_sprint_points "$sprint_id")
+    record_sprint_velocity "$sprint_id" "$sprint_done_points" "$sprint_total_points"
+    
     # End sprint
     end_sprint "completed"
     
@@ -586,6 +592,16 @@ show_final_summary() {
         echo ""
         echo "Backlog Items:        $done_items / $total_items done"
         echo "Story Points:         $done_points / $total_points completed"
+        
+        # Record final sprint velocity if sprint completed
+        if [[ $sprint -gt 0 ]]; then
+            local sprint_done_points=$(get_sprint_completed_points "$sprint")
+            local sprint_total_points=$(get_sprint_points "$sprint")
+            record_sprint_velocity "$sprint" "$sprint_done_points" "$sprint_total_points"
+        fi
+        
+        # Save metrics snapshot
+        save_metrics_snapshot
     fi
     
     echo ""
@@ -734,9 +750,7 @@ main() {
             handle_backlog_cmd "$@"
             ;;
         metrics)
-            show_sprint_status
-            echo ""
-            show_backlog_summary
+            show_metrics_dashboard
             ;;
         --reset-circuit)
             reset_circuit_breaker "Manual reset via CLI"
