@@ -726,6 +726,10 @@ main() {
                 export CURSOR_MODEL="$2"
                 shift 2
                 ;;
+            --calls)
+                export MAX_CALLS_PER_HOUR="$2"
+                shift 2
+                ;;
             *)
                 break
                 ;;

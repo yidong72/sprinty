@@ -582,7 +582,21 @@ EOF
 }
 
 @test "detect_rate_limit_error detects throttled" {
-    echo "Request was throttled, please retry later" > "test_output.log"
+    echo "Request throttled, please retry later" > "test_output.log"
+    
+    run detect_rate_limit_error "test_output.log"
+    assert_success
+}
+
+@test "detect_rate_limit_error ignores RateLimiter task name" {
+    echo "TASK-006: RateLimiter (3 pts)" > "test_output.log"
+    
+    run detect_rate_limit_error "test_output.log"
+    assert_failure  # Should NOT detect this as rate limit error
+}
+
+@test "detect_rate_limit_error detects 429 status code" {
+    echo "Error 429: Too Many Requests" > "test_output.log"
     
     run detect_rate_limit_error "test_output.log"
     assert_success

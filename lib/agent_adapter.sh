@@ -460,10 +460,12 @@ check_project_done_from_response() {
 # ============================================================================
 
 # Check for rate limit errors in output
+# Note: Pattern must be specific to avoid false positives (e.g., "RateLimiter" task name)
 detect_rate_limit_error() {
     local output_file=$1
     
-    if grep -qiE "rate.*limit|too.*many.*requests|quota.*exceeded|throttl" "$output_file" 2>/dev/null; then
+    # Look for actual error messages, not task names or code references
+    if grep -qiE "rate limit (exceeded|reached|hit|error)|rate.limited|too many requests|quota exceeded|request throttled|throttling error|429|slow down" "$output_file" 2>/dev/null; then
         return 0  # Rate limit detected
     fi
     return 1  # No rate limit
