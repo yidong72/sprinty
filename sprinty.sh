@@ -756,24 +756,23 @@ launch_monitor() {
     [[ -n "${MAX_CALLS_PER_HOUR:-}" ]] && run_cmd="$run_cmd --calls $MAX_CALLS_PER_HOUR"
     run_cmd="$run_cmd run"
     
-    # Create new tmux session with the run pane (main, left side)
+    # Create new tmux session with the run pane (left)
     tmux new-session -d -s "$session_name" -n "sprinty" "$run_cmd; echo ''; echo 'Press Enter to close...'; read"
     
-    # Split horizontally (creates right pane)
+    # Split vertically to create middle pane (status)
     tmux split-window -h -t "$session_name:0"
     
-    # In right pane, split vertically (creates bottom-right pane)
-    tmux split-window -v -t "$session_name:0.1"
+    # Split vertically again to create right pane (metrics)
+    tmux split-window -h -t "$session_name:0.1"
     
-    # Set up status pane (top-right) with watch
+    # Set up status pane (middle) with watch
     tmux send-keys -t "$session_name:0.1" "watch -n $refresh_interval -c '$sprinty_cmd status'" C-m
     
-    # Set up metrics pane (bottom-right) with watch
+    # Set up metrics pane (right) with watch
     tmux send-keys -t "$session_name:0.2" "watch -n $refresh_interval -c '$sprinty_cmd metrics'" C-m
     
-    # Adjust pane sizes (left pane 60%, right panes 40%)
-    tmux select-pane -t "$session_name:0.0"
-    tmux resize-pane -t "$session_name:0.0" -x 60%
+    # Adjust pane sizes to equal thirds
+    tmux select-layout -t "$session_name:0" even-horizontal
     
     # Set pane titles (if supported)
     tmux select-pane -t "$session_name:0.0" -T "🚀 Sprint Runner"
@@ -793,11 +792,11 @@ launch_monitor() {
     echo "Session: $session_name"
     echo ""
     echo "Layout:"
-    echo "  ┌─────────────────┬─────────────┐"
-    echo "  │                 │   Status    │"
-    echo "  │  Sprint Runner  ├─────────────┤"
-    echo "  │                 │   Metrics   │"
-    echo "  └─────────────────┴─────────────┘"
+    echo "  ┌─────────────────┬─────────────────┬─────────────────┐"
+    echo "  │                 │                 │                 │"
+    echo "  │  Sprint Runner  │     Status      │     Metrics     │"
+    echo "  │                 │                 │                 │"
+    echo "  └─────────────────┴─────────────────┴─────────────────┘"
     echo ""
     echo "Commands:"
     echo "  Attach:  tmux attach -t $session_name"
