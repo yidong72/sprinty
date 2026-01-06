@@ -465,3 +465,368 @@ teardown() {
     run is_project_done
     assert_success
 }
+
+# ============================================================================
+# ADD ITEM JSON TESTS
+# ============================================================================
+
+@test "add_backlog_item_json creates item from JSON" {
+    init_backlog "test-project"
+    
+    task_id=$(add_backlog_item_json '{"title": "JSON Task", "type": "feature", "story_points": 8}')
+    
+    assert_equal "$task_id" "TASK-001"
+}
+
+@test "add_backlog_item_json stores title from JSON" {
+    init_backlog "test-project"
+    add_backlog_item_json '{"title": "My JSON Feature", "type": "bug"}'
+    
+    local title=$(jq -r '.items[0].title' "$BACKLOG_FILE")
+    assert_equal "$title" "My JSON Feature"
+}
+
+@test "add_backlog_item_json stores type from JSON" {
+    init_backlog "test-project"
+    add_backlog_item_json '{"title": "Test", "type": "bug"}'
+    
+    local type=$(jq -r '.items[0].type' "$BACKLOG_FILE")
+    assert_equal "$type" "bug"
+}
+
+@test "add_backlog_item_json stores story points from JSON" {
+    init_backlog "test-project"
+    add_backlog_item_json '{"title": "Test", "story_points": 13}'
+    
+    local points=$(jq -r '.items[0].story_points' "$BACKLOG_FILE")
+    assert_equal "$points" "13"
+}
+
+@test "add_backlog_item_json uses defaults for missing fields" {
+    init_backlog "test-project"
+    add_backlog_item_json '{"title": "Minimal"}'
+    
+    local type=$(jq -r '.items[0].type' "$BACKLOG_FILE")
+    local points=$(jq -r '.items[0].story_points' "$BACKLOG_FILE")
+    local priority=$(jq -r '.items[0].priority' "$BACKLOG_FILE")
+    
+    assert_equal "$type" "feature"
+    assert_equal "$points" "3"
+    assert_equal "$priority" "1"
+}
+
+@test "add_backlog_item_json stores acceptance criteria from JSON" {
+    init_backlog "test-project"
+    add_backlog_item_json '{"title": "Test", "acceptance_criteria": ["AC1", "AC2", "AC3"]}'
+    
+    local count=$(jq '.items[0].acceptance_criteria | length' "$BACKLOG_FILE")
+    assert_equal "$count" "3"
+}
+
+@test "add_backlog_item_json stores dependencies from JSON" {
+    init_backlog "test-project"
+    add_backlog_item_json '{"title": "Test", "dependencies": ["TASK-001", "TASK-002"]}'
+    
+    local count=$(jq '.items[0].dependencies | length' "$BACKLOG_FILE")
+    assert_equal "$count" "2"
+}
+
+@test "add_backlog_item_json fails for invalid JSON" {
+    init_backlog "test-project"
+    
+    run add_backlog_item_json "not valid json"
+    
+    assert_failure
+}
+
+@test "add_backlog_item_json fails without initialization" {
+    rm -f "$BACKLOG_FILE"
+    
+    run add_backlog_item_json '{"title": "Test"}'
+    
+    assert_failure
+}
+
+# ============================================================================
+# UPDATE ITEM FIELD TESTS
+# ============================================================================
+
+@test "update_item_field updates string field" {
+    init_backlog "test-project"
+    add_backlog_item "Task" "feature" 1 5
+    
+    update_item_field "TASK-001" "title" "Updated Title"
+    
+    local title=$(jq -r '.items[0].title' "$BACKLOG_FILE")
+    assert_equal "$title" "Updated Title"
+}
+
+@test "update_item_field updates numeric field" {
+    init_backlog "test-project"
+    add_backlog_item "Task" "feature" 1 5
+    
+    update_item_field "TASK-001" "priority" "2"
+    
+    local priority=$(jq -r '.items[0].priority' "$BACKLOG_FILE")
+    assert_equal "$priority" "2"
+}
+
+@test "update_item_field updates boolean field" {
+    init_backlog "test-project"
+    add_backlog_item "Task" "feature" 1 5
+    
+    # Add a boolean field
+    jq '.items[0].blocked = false' "$BACKLOG_FILE" > "${BACKLOG_FILE}.tmp" && mv "${BACKLOG_FILE}.tmp" "$BACKLOG_FILE"
+    
+    update_item_field "TASK-001" "blocked" "true"
+    
+    local blocked=$(jq -r '.items[0].blocked' "$BACKLOG_FILE")
+    assert_equal "$blocked" "true"
+}
+
+@test "update_item_field updates null field" {
+    init_backlog "test-project"
+    add_backlog_item "Task" "feature" 1 5
+    
+    update_item_field "TASK-001" "parent_id" "null"
+    
+    local parent=$(jq -r '.items[0].parent_id' "$BACKLOG_FILE")
+    assert_equal "$parent" "null"
+}
+
+@test "update_item_field updates updated_at timestamp" {
+    init_backlog "test-project"
+    add_backlog_item "Task" "feature" 1 5
+    local old_ts=$(jq -r '.items[0].updated_at' "$BACKLOG_FILE")
+    
+    sleep 1
+    update_item_field "TASK-001" "title" "New Title"
+    
+    local new_ts=$(jq -r '.items[0].updated_at' "$BACKLOG_FILE")
+    assert_not_equal "$old_ts" "$new_ts"
+}
+
+# ============================================================================
+# ADDITIONAL STATUS TRANSITION TESTS
+# ============================================================================
+
+@test "update_item_status allows backlog to ready" {
+    init_backlog "test-project"
+    add_backlog_item "Task" "feature" 1 5
+    
+    update_item_status "TASK-001" "ready"
+    
+    local status=$(jq -r '.items[0].status' "$BACKLOG_FILE")
+    assert_equal "$status" "ready"
+}
+
+@test "update_item_status allows ready to in_progress" {
+    init_backlog "test-project"
+    add_backlog_item "Task" "feature" 1 5
+    update_item_status "TASK-001" "ready"
+    
+    update_item_status "TASK-001" "in_progress"
+    
+    local status=$(jq -r '.items[0].status' "$BACKLOG_FILE")
+    assert_equal "$status" "in_progress"
+}
+
+@test "update_item_status allows in_progress to implemented" {
+    init_backlog "test-project"
+    add_backlog_item "Task" "feature" 1 5
+    update_item_status "TASK-001" "in_progress"
+    
+    update_item_status "TASK-001" "implemented"
+    
+    local status=$(jq -r '.items[0].status' "$BACKLOG_FILE")
+    assert_equal "$status" "implemented"
+}
+
+@test "update_item_status allows implemented to qa_in_progress" {
+    init_backlog "test-project"
+    add_backlog_item "Task" "feature" 1 5
+    update_item_status "TASK-001" "implemented"
+    
+    update_item_status "TASK-001" "qa_in_progress"
+    
+    local status=$(jq -r '.items[0].status' "$BACKLOG_FILE")
+    assert_equal "$status" "qa_in_progress"
+}
+
+@test "update_item_status allows qa_in_progress to qa_passed" {
+    init_backlog "test-project"
+    add_backlog_item "Task" "feature" 1 5
+    update_item_status "TASK-001" "qa_in_progress"
+    
+    update_item_status "TASK-001" "qa_passed"
+    
+    local status=$(jq -r '.items[0].status' "$BACKLOG_FILE")
+    assert_equal "$status" "qa_passed"
+}
+
+@test "update_item_status allows qa_in_progress to qa_failed" {
+    init_backlog "test-project"
+    add_backlog_item "Task" "feature" 1 5
+    update_item_status "TASK-001" "qa_in_progress"
+    
+    update_item_status "TASK-001" "qa_failed"
+    
+    local status=$(jq -r '.items[0].status' "$BACKLOG_FILE")
+    assert_equal "$status" "qa_failed"
+}
+
+@test "update_item_status allows qa_passed to done" {
+    init_backlog "test-project"
+    add_backlog_item "Task" "feature" 1 5
+    update_item_status "TASK-001" "qa_passed"
+    
+    update_item_status "TASK-001" "done"
+    
+    local status=$(jq -r '.items[0].status' "$BACKLOG_FILE")
+    assert_equal "$status" "done"
+}
+
+@test "update_item_status allows any to cancelled" {
+    init_backlog "test-project"
+    add_backlog_item "Task" "feature" 1 5
+    update_item_status "TASK-001" "in_progress"
+    
+    update_item_status "TASK-001" "cancelled"
+    
+    local status=$(jq -r '.items[0].status' "$BACKLOG_FILE")
+    assert_equal "$status" "cancelled"
+}
+
+# ============================================================================
+# TASK TYPES TESTS
+# ============================================================================
+
+@test "add_backlog_item accepts feature type" {
+    init_backlog "test-project"
+    
+    run add_backlog_item "Task" "feature" 1 5
+    
+    assert_success
+}
+
+@test "add_backlog_item accepts bug type" {
+    init_backlog "test-project"
+    
+    run add_backlog_item "Task" "bug" 1 5
+    
+    assert_success
+}
+
+@test "add_backlog_item accepts spike type" {
+    init_backlog "test-project"
+    
+    run add_backlog_item "Task" "spike" 1 5
+    
+    assert_success
+}
+
+@test "add_backlog_item accepts infra type" {
+    init_backlog "test-project"
+    
+    run add_backlog_item "Task" "infra" 1 5
+    
+    assert_success
+}
+
+@test "add_backlog_item accepts chore type" {
+    init_backlog "test-project"
+    
+    run add_backlog_item "Task" "chore" 1 5
+    
+    assert_success
+}
+
+# ============================================================================
+# SPRINT FILTERING TESTS
+# ============================================================================
+
+@test "get_sprint_backlog returns empty array for sprint with no tasks" {
+    init_backlog "test-project"
+    add_backlog_item "Task 1" "feature" 1 5
+    
+    result=$(get_sprint_backlog 99)
+    count=$(echo "$result" | jq 'length')
+    
+    assert_equal "$count" "0"
+}
+
+@test "get_sprint_backlog returns only tasks for specified sprint" {
+    init_backlog "test-project"
+    add_backlog_item "Task 1" "feature" 1 5
+    add_backlog_item "Task 2" "feature" 1 3
+    add_backlog_item "Task 3" "feature" 1 2
+    assign_to_sprint "TASK-001" 1
+    assign_to_sprint "TASK-002" 2
+    assign_to_sprint "TASK-003" 1
+    
+    result=$(get_sprint_backlog 1)
+    count=$(echo "$result" | jq 'length')
+    
+    assert_equal "$count" "2"
+}
+
+@test "get_sprint_points returns 0 for sprint with no tasks" {
+    init_backlog "test-project"
+    
+    result=$(get_sprint_points 99)
+    
+    assert_equal "$result" "0"
+}
+
+@test "get_sprint_completed_points returns 0 for sprint with no done tasks" {
+    init_backlog "test-project"
+    add_backlog_item "Task 1" "feature" 1 5
+    assign_to_sprint "TASK-001" 1
+    
+    result=$(get_sprint_completed_points 1)
+    
+    assert_equal "$result" "0"
+}
+
+# ============================================================================
+# ITEM RETRIEVAL TESTS
+# ============================================================================
+
+@test "get_backlog_item returns full item data" {
+    init_backlog "test-project"
+    add_backlog_item "My Task" "bug" 2 8
+    
+    result=$(get_backlog_item "TASK-001")
+    
+    local title=$(echo "$result" | jq -r '.title')
+    local type=$(echo "$result" | jq -r '.type')
+    local priority=$(echo "$result" | jq -r '.priority')
+    local points=$(echo "$result" | jq -r '.story_points')
+    
+    assert_equal "$title" "My Task"
+    assert_equal "$type" "bug"
+    assert_equal "$priority" "2"
+    assert_equal "$points" "8"
+}
+
+@test "get_all_items returns items sorted by id" {
+    init_backlog "test-project"
+    add_backlog_item "Task 1" "feature" 1 5
+    add_backlog_item "Task 2" "feature" 1 3
+    add_backlog_item "Task 3" "feature" 1 2
+    
+    result=$(get_all_items)
+    
+    local first_id=$(echo "$result" | jq -r '.[0].id')
+    assert_equal "$first_id" "TASK-001"
+}
+
+@test "get_next_ready_task returns null when no ready tasks" {
+    init_backlog "test-project"
+    add_backlog_item "Task 1" "feature" 1 5
+    update_item_status "TASK-001" "done"
+    
+    result=$(get_next_ready_task)
+    
+    [[ "$result" == "null" ]]
+}

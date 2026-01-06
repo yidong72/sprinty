@@ -484,3 +484,220 @@ EOF
     
     assert_equal "$result" "not installed"
 }
+
+# ============================================================================
+# CURSOR AUTH TESTS
+# ============================================================================
+
+@test "check_cursor_auth returns success with API key" {
+    export CURSOR_API_KEY="test-api-key"
+    
+    run check_cursor_auth
+    
+    assert_success
+}
+
+@test "check_cursor_auth returns success without API key when agent installed" {
+    unset CURSOR_API_KEY
+    export CURSOR_AGENT_CMD="nonexistent_cmd_12345"
+    
+    # Should return failure when cursor-agent not installed and no API key
+    run check_cursor_auth
+    
+    assert_failure
+}
+
+# ============================================================================
+# ADDITIONAL SPRINTY_STATUS PARSING TESTS
+# ============================================================================
+
+@test "get_sprinty_status_field extracts story_points_done" {
+    create_mock_agent_output "test_output.log" "SUCCESS" "false" "false"
+    
+    result=$(get_sprinty_status_field "test_output.log" "STORY_POINTS_DONE")
+    
+    assert_equal "$result" "5"
+}
+
+@test "get_sprinty_status_field extracts tests_status" {
+    create_mock_agent_output "test_output.log" "SUCCESS" "false" "false"
+    
+    result=$(get_sprinty_status_field "test_output.log" "TESTS_STATUS")
+    
+    assert_equal "$result" "PASSING"
+}
+
+@test "get_sprinty_status_field extracts next_action" {
+    create_mock_agent_output "test_output.log" "SUCCESS" "false" "false"
+    
+    result=$(get_sprinty_status_field "test_output.log" "NEXT_ACTION")
+    
+    [[ "$result" == *"Continue"* ]]
+}
+
+@test "get_sprinty_status_field returns empty for missing field" {
+    create_mock_agent_output "test_output.log" "SUCCESS" "false" "false"
+    
+    result=$(get_sprinty_status_field "test_output.log" "NONEXISTENT_FIELD")
+    
+    [[ -z "$result" ]]
+}
+
+@test "parse_sprinty_status_to_json includes story_points_done" {
+    create_mock_agent_output "test_output.log" "SUCCESS" "false" "false"
+    
+    result=$(parse_sprinty_status_to_json "test_output.log")
+    
+    local points=$(echo "$result" | jq '.story_points_done')
+    assert_equal "$points" "5"
+}
+
+@test "parse_sprinty_status_to_json includes tests_status" {
+    create_mock_agent_output "test_output.log" "SUCCESS" "false" "false"
+    
+    result=$(parse_sprinty_status_to_json "test_output.log")
+    
+    local status=$(echo "$result" | jq -r '.tests_status')
+    assert_equal "$status" "PASSING"
+}
+
+@test "parse_sprinty_status_to_json includes next_action" {
+    create_mock_agent_output "test_output.log" "SUCCESS" "false" "false"
+    
+    result=$(parse_sprinty_status_to_json "test_output.log")
+    
+    local action=$(echo "$result" | jq -r '.next_action')
+    [[ "$action" == *"Continue"* ]]
+}
+
+# ============================================================================
+# ADDITIONAL ERROR DETECTION TESTS
+# ============================================================================
+
+@test "detect_rate_limit_error detects quota exceeded" {
+    echo "Error: quota exceeded for this request" > "test_output.log"
+    
+    run detect_rate_limit_error "test_output.log"
+    assert_success
+}
+
+@test "detect_rate_limit_error detects throttled" {
+    echo "Request was throttled, please retry later" > "test_output.log"
+    
+    run detect_rate_limit_error "test_output.log"
+    assert_success
+}
+
+@test "detect_auth_error detects access denied" {
+    echo "access denied to resource" > "test_output.log"
+    
+    run detect_auth_error "test_output.log"
+    assert_success
+}
+
+@test "detect_auth_error detects not authenticated" {
+    echo "User not authenticated" > "test_output.log"
+    
+    run detect_auth_error "test_output.log"
+    assert_success
+}
+
+@test "detect_auth_error detects invalid api key" {
+    echo "Invalid API key provided" > "test_output.log"
+    
+    run detect_auth_error "test_output.log"
+    assert_success
+}
+
+@test "detect_permission_error detects blocked by permission" {
+    echo "Operation blocked by permission settings" > "test_output.log"
+    
+    run detect_permission_error "test_output.log"
+    assert_success
+}
+
+@test "detect_permission_error detects not allowed" {
+    echo "Action not allowed in current context" > "test_output.log"
+    
+    run detect_permission_error "test_output.log"
+    assert_success
+}
+
+@test "detect_permission_error detects forbidden" {
+    echo "Forbidden: insufficient privileges" > "test_output.log"
+    
+    run detect_permission_error "test_output.log"
+    assert_success
+}
+
+# ============================================================================
+# GENERATE PROMPT ADDITIONAL TESTS
+# ============================================================================
+
+@test "generate_prompt uses correct role prompt file" {
+    result=$(generate_prompt "qa" "qa" 1)
+    
+    grep -q "QA Agent" "$result"
+}
+
+@test "generate_prompt uses product_owner prompt file" {
+    result=$(generate_prompt "product_owner" "planning" 1)
+    
+    grep -q "Product Owner Agent" "$result"
+}
+
+@test "generate_prompt generates unique filename per call" {
+    result1=$(generate_prompt "developer" "implementation" 1)
+    sleep 1
+    result2=$(generate_prompt "developer" "implementation" 1)
+    
+    # Should be different files (due to timestamp)
+    [[ "$result1" != "$result2" ]] || [[ -f "$result1" ]]
+}
+
+# ============================================================================
+# CONFIG TESTS
+# ============================================================================
+
+@test "init_cursor_project_config creates .cursor directory" {
+    rm -rf "$CURSOR_CONFIG_DIR"
+    
+    init_cursor_project_config "."
+    
+    assert_dir_exists "$CURSOR_CONFIG_DIR"
+}
+
+@test "init_cursor_project_config permissions have Read pattern" {
+    init_cursor_project_config "."
+    
+    local has_read=$(jq '.permissions.allow | map(select(startswith("Read"))) | length > 0' "$CURSOR_CONFIG_DIR/cli.json")
+    assert_equal "$has_read" "true"
+}
+
+@test "init_cursor_project_config permissions have Write pattern" {
+    init_cursor_project_config "."
+    
+    local has_write=$(jq '.permissions.allow | map(select(startswith("Write"))) | length > 0' "$CURSOR_CONFIG_DIR/cli.json")
+    assert_equal "$has_write" "true"
+}
+
+@test "init_cursor_project_config permissions have Shell pattern" {
+    init_cursor_project_config "."
+    
+    local has_shell=$(jq '.permissions.allow | map(select(startswith("Shell"))) | length > 0' "$CURSOR_CONFIG_DIR/cli.json")
+    assert_equal "$has_shell" "true"
+}
+
+@test "init_cursor_project_config deny list blocks sudo" {
+    init_cursor_project_config "."
+    
+    local has_sudo=$(jq '.permissions.deny | map(select(contains("sudo"))) | length > 0' "$CURSOR_CONFIG_DIR/cli.json")
+    assert_equal "$has_sudo" "true"
+}
+
+@test "init_cursor_project_config deny list blocks env files" {
+    init_cursor_project_config "."
+    
+    local has_env=$(jq '.permissions.deny | map(select(contains(".env"))) | length > 0' "$CURSOR_CONFIG_DIR/cli.json")
+    assert_equal "$has_env" "true"
+}

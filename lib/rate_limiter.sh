@@ -118,7 +118,7 @@ increment_call_counter() {
     fi
     calls_made=$((calls_made + 0))
     
-    ((calls_made++))
+    calls_made=$((calls_made + 1))
     echo "$calls_made" > "$CALL_COUNT_FILE"
     
     # Update state file

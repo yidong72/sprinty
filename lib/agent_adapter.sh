@@ -33,12 +33,12 @@ AGENT_OUTPUT_DIR="${AGENT_OUTPUT_DIR:-logs/agent_output}"
 check_cursor_agent_installed() {
     if ! command -v "$CURSOR_AGENT_CMD" &> /dev/null; then
         log_status "ERROR" "cursor-agent CLI not found"
-        echo ""
-        echo "Install cursor-agent with:"
-        echo "  curl https://cursor.com/install -fsS | bash"
-        echo ""
-        echo "After installation, restart your terminal or run:"
-        echo "  source ~/.bashrc  # or ~/.zshrc"
+        echo "" >&2
+        echo "Install cursor-agent with:" >&2
+        echo "  curl https://cursor.com/install -fsS | bash" >&2
+        echo "" >&2
+        echo "After installation, restart your terminal or run:" >&2
+        echo "  source ~/.bashrc  # or ~/.zshrc" >&2
         return 1
     fi
     return 0
@@ -395,7 +395,7 @@ parse_sprinty_status_to_json() {
     
     if [[ -z "$status_block" ]]; then
         echo "{}"
-        return 1
+        return 0
     fi
     
     # Parse each field

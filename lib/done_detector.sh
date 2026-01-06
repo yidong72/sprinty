@@ -54,7 +54,25 @@ EOF
 
 # Reset exit signals (for new session/sprint)
 reset_exit_signals() {
-    init_exit_signals
+    ensure_sprinty_dir
+    
+    # Force recreation by removing existing file
+    rm -f "$EXIT_SIGNALS_FILE"
+    
+    cat > "$EXIT_SIGNALS_FILE" << 'EOF'
+{
+    "idle_loops": [],
+    "done_signals": [],
+    "completion_indicators": [],
+    "test_only_loops": [],
+    "last_updated": null
+}
+EOF
+    
+    # Update timestamp
+    jq --arg ts "$(get_iso_timestamp)" '.last_updated = $ts' "$EXIT_SIGNALS_FILE" > "${EXIT_SIGNALS_FILE}.tmp" \
+        && mv "${EXIT_SIGNALS_FILE}.tmp" "$EXIT_SIGNALS_FILE"
+    
     log_status "INFO" "Exit signals reset for new session"
 }
 
@@ -218,14 +236,21 @@ check_fix_plan_completion() {
         return 1  # No fix plan, can't determine completion
     fi
     
-    local total_items=$(grep -c "^- \[" "$fix_plan_file" 2>/dev/null || echo "0")
-    local completed_items=$(grep -c "^- \[x\]" "$fix_plan_file" 2>/dev/null || echo "0")
-    local unchecked_items=$(grep -c "^- \[ \]" "$fix_plan_file" 2>/dev/null || echo "0")
+    local total_items
+    local completed_items
+    local unchecked_items
     
-    # Ensure integers
-    total_items=$((total_items + 0))
-    completed_items=$((completed_items + 0))
-    unchecked_items=$((unchecked_items + 0))
+    total_items=$(grep -c "^- \[" "$fix_plan_file" 2>/dev/null | head -1 || echo "0")
+    completed_items=$(grep -c "^- \[x\]" "$fix_plan_file" 2>/dev/null | head -1 || echo "0")
+    unchecked_items=$(grep -c "^- \[ \]" "$fix_plan_file" 2>/dev/null | head -1 || echo "0")
+    
+    # Ensure integers (strip any whitespace)
+    total_items=${total_items//[^0-9]/}
+    completed_items=${completed_items//[^0-9]/}
+    unchecked_items=${unchecked_items//[^0-9]/}
+    total_items=${total_items:-0}
+    completed_items=${completed_items:-0}
+    unchecked_items=${unchecked_items:-0}
     
     if [[ $total_items -gt 0 ]] && [[ $completed_items -eq $total_items ]] && [[ $unchecked_items -eq 0 ]]; then
         log_status "SUCCESS" "All @fix_plan.md items complete ($completed_items/$total_items)"
@@ -244,8 +269,10 @@ has_remaining_fix_plan_work() {
         return 1  # No fix plan
     fi
     
-    local unchecked=$(grep -c "^- \[ \]" "$fix_plan_file" 2>/dev/null || echo "0")
-    unchecked=$((unchecked + 0))
+    local unchecked
+    unchecked=$(grep -c "^- \[ \]" "$fix_plan_file" 2>/dev/null | head -1 || echo "0")
+    unchecked=${unchecked//[^0-9]/}
+    unchecked=${unchecked:-0}
     
     [[ $unchecked -gt 0 ]]
 }

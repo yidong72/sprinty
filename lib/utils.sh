@@ -95,8 +95,8 @@ log_status() {
         *)         color=$NC;     icon="" ;;
     esac
     
-    # Console output with color
-    echo -e "${color}[$timestamp] [$level] $icon $message${NC}"
+    # Console output with color (to stderr so it doesn't interfere with function return values)
+    echo -e "${color}[$timestamp] [$level] $icon $message${NC}" >&2
     
     # Log file output (no color codes)
     ensure_log_dir

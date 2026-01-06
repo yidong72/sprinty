@@ -591,3 +591,375 @@ teardown() {
     result=$(get_role_for_phase "unknown")
     assert_equal "$result" "developer"
 }
+
+# ============================================================================
+# SPRINT STATE FILE STRUCTURE TESTS
+# ============================================================================
+
+@test "sprint state file has all required fields" {
+    init_sprint_state
+    
+    local has_sprint=$(jq 'has("current_sprint")' "$SPRINT_STATE_FILE")
+    local has_phase=$(jq 'has("current_phase")' "$SPRINT_STATE_FILE")
+    local has_loop_count=$(jq 'has("phase_loop_count")' "$SPRINT_STATE_FILE")
+    local has_rework=$(jq 'has("rework_count")' "$SPRINT_STATE_FILE")
+    local has_done=$(jq 'has("project_done")' "$SPRINT_STATE_FILE")
+    local has_started=$(jq 'has("started_at")' "$SPRINT_STATE_FILE")
+    local has_updated=$(jq 'has("last_updated")' "$SPRINT_STATE_FILE")
+    local has_history=$(jq 'has("sprints_history")' "$SPRINT_STATE_FILE")
+    
+    assert_equal "$has_sprint" "true"
+    assert_equal "$has_phase" "true"
+    assert_equal "$has_loop_count" "true"
+    assert_equal "$has_rework" "true"
+    assert_equal "$has_done" "true"
+    assert_equal "$has_started" "true"
+    assert_equal "$has_updated" "true"
+    assert_equal "$has_history" "true"
+}
+
+@test "sprint state file has empty sprints_history initially" {
+    init_sprint_state
+    
+    local count=$(jq '.sprints_history | length' "$SPRINT_STATE_FILE")
+    assert_equal "$count" "0"
+}
+
+# ============================================================================
+# SPRINT HISTORY TESTS
+# ============================================================================
+
+@test "start_sprint adds entry to sprints_history" {
+    init_sprint_state
+    
+    start_sprint
+    
+    local count=$(jq '.sprints_history | length' "$SPRINT_STATE_FILE")
+    assert_equal "$count" "1"
+}
+
+@test "sprints_history entry has sprint number" {
+    init_sprint_state
+    
+    start_sprint
+    
+    local sprint=$(jq '.sprints_history[0].sprint' "$SPRINT_STATE_FILE")
+    assert_equal "$sprint" "1"
+}
+
+@test "sprints_history entry has started_at timestamp" {
+    init_sprint_state
+    
+    start_sprint
+    
+    local has_started=$(jq '.sprints_history[0] | has("started_at")' "$SPRINT_STATE_FILE")
+    assert_equal "$has_started" "true"
+}
+
+@test "sprints_history entry has status in_progress" {
+    init_sprint_state
+    
+    start_sprint
+    
+    local status=$(jq -r '.sprints_history[0].status' "$SPRINT_STATE_FILE")
+    assert_equal "$status" "in_progress"
+}
+
+@test "end_sprint sets ended_at in history" {
+    init_sprint_state
+    start_sprint
+    
+    end_sprint "completed"
+    
+    local ended=$(jq -r '.sprints_history[0].ended_at' "$SPRINT_STATE_FILE")
+    [[ "$ended" != "null" ]]
+}
+
+@test "end_sprint accepts different status values" {
+    init_sprint_state
+    start_sprint
+    
+    end_sprint "aborted"
+    
+    local status=$(jq -r '.sprints_history[0].status' "$SPRINT_STATE_FILE")
+    assert_equal "$status" "aborted"
+}
+
+@test "multiple sprints accumulate in history" {
+    init_sprint_state
+    
+    start_sprint
+    end_sprint "completed"
+    start_sprint
+    end_sprint "completed"
+    start_sprint
+    
+    local count=$(jq '.sprints_history | length' "$SPRINT_STATE_FILE")
+    assert_equal "$count" "3"
+}
+
+# ============================================================================
+# PHASE TRANSITION TESTS
+# ============================================================================
+
+@test "set_current_phase updates last_updated" {
+    init_sprint_state
+    local old_ts=$(jq -r '.last_updated' "$SPRINT_STATE_FILE")
+    
+    sleep 1
+    set_current_phase "implementation"
+    
+    local new_ts=$(jq -r '.last_updated' "$SPRINT_STATE_FILE")
+    assert_not_equal "$old_ts" "$new_ts"
+}
+
+@test "phase transitions through all valid phases" {
+    init_sprint_state
+    
+    for phase in initialization planning implementation qa review; do
+        set_current_phase "$phase"
+        local current=$(get_current_phase)
+        assert_equal "$current" "$phase"
+    done
+}
+
+# ============================================================================
+# LOOP COUNT TESTS
+# ============================================================================
+
+@test "increment_phase_loop returns sequential values" {
+    init_sprint_state
+    
+    local r1=$(increment_phase_loop)
+    local r2=$(increment_phase_loop)
+    local r3=$(increment_phase_loop)
+    
+    assert_equal "$r1" "1"
+    assert_equal "$r2" "2"
+    assert_equal "$r3" "3"
+}
+
+@test "phase loop count persists in state file" {
+    init_sprint_state
+    increment_phase_loop
+    increment_phase_loop
+    
+    local count=$(get_phase_loop_count)
+    assert_equal "$count" "2"
+}
+
+@test "set_current_phase resets loop count to 0" {
+    init_sprint_state
+    increment_phase_loop
+    increment_phase_loop
+    increment_phase_loop
+    
+    set_current_phase "qa"
+    
+    local count=$(get_phase_loop_count)
+    assert_equal "$count" "0"
+}
+
+# ============================================================================
+# REWORK CYCLE TESTS
+# ============================================================================
+
+@test "increment_rework returns sequential values" {
+    init_sprint_state
+    
+    local r1=$(increment_rework)
+    local r2=$(increment_rework)
+    
+    assert_equal "$r1" "1"
+    assert_equal "$r2" "2"
+}
+
+@test "rework count persists in state file" {
+    init_sprint_state
+    increment_rework
+    increment_rework
+    
+    local count=$(get_rework_count)
+    assert_equal "$count" "2"
+}
+
+@test "start_sprint resets rework count" {
+    init_sprint_state
+    start_sprint
+    increment_rework
+    increment_rework
+    
+    start_sprint
+    
+    local count=$(get_rework_count)
+    assert_equal "$count" "0"
+}
+
+@test "is_rework_limit_exceeded uses DEFAULT_MAX_REWORK_CYCLES" {
+    init_sprint_state
+    
+    # Default is 3
+    increment_rework
+    increment_rework
+    run is_rework_limit_exceeded
+    assert_failure
+    
+    increment_rework
+    run is_rework_limit_exceeded
+    assert_success
+}
+
+# ============================================================================
+# MAX SPRINTS TESTS
+# ============================================================================
+
+@test "start_sprint fails when max sprints reached" {
+    init_sprint_state
+    
+    # Set to max - 1
+    update_sprint_state "current_sprint" 10
+    
+    run start_sprint
+    
+    assert_equal "$status" "21"
+}
+
+@test "start_sprint succeeds when under max sprints" {
+    init_sprint_state
+    update_sprint_state "current_sprint" 5
+    
+    run start_sprint
+    
+    assert_success
+}
+
+# ============================================================================
+# PHASE COMPLETION EDGE CASES
+# ============================================================================
+
+@test "is_phase_complete planning accepts alternate plan file location" {
+    init_sprint_state
+    start_sprint
+    touch "$SPRINTS_DIR/sprint_1_plan.md"
+    
+    run is_phase_complete "planning"
+    assert_success
+}
+
+@test "is_phase_complete review accepts alternate review file location" {
+    init_sprint_state
+    start_sprint
+    mkdir -p "$REVIEWS_DIR/sprint_1"
+    touch "$REVIEWS_DIR/sprint_1/review.md"
+    
+    run is_phase_complete "review"
+    assert_success
+}
+
+@test "is_phase_complete returns false for unknown phase" {
+    init_sprint_state
+    
+    run is_phase_complete "unknown_phase"
+    
+    assert_failure
+}
+
+@test "is_phase_complete implementation handles in_progress tasks" {
+    init_sprint_state
+    init_backlog "test-project"
+    start_sprint
+    add_backlog_item "Task 1" "feature" 1 5
+    assign_to_sprint "TASK-001" 1
+    update_item_status "TASK-001" "in_progress"
+    
+    run is_phase_complete "implementation"
+    assert_failure
+}
+
+# ============================================================================
+# HAS TASKS TO REWORK TESTS
+# ============================================================================
+
+@test "has_tasks_to_rework considers only current sprint" {
+    init_sprint_state
+    init_backlog "test-project"
+    start_sprint
+    add_backlog_item "Task 1" "feature" 1 5
+    add_backlog_item "Task 2" "feature" 1 3
+    assign_to_sprint "TASK-001" 1
+    # TASK-002 not in sprint
+    update_item_status "TASK-001" "qa_passed"
+    update_item_status "TASK-002" "qa_failed"
+    
+    # Only sprint 1 tasks should be checked
+    run has_tasks_to_rework
+    assert_failure
+}
+
+# ============================================================================
+# UPDATE SPRINT STATE TESTS
+# ============================================================================
+
+@test "update_sprint_state handles string values" {
+    init_sprint_state
+    
+    update_sprint_state "current_phase" "qa"
+    
+    local phase=$(get_current_phase)
+    assert_equal "$phase" "qa"
+}
+
+@test "update_sprint_state handles integer values" {
+    init_sprint_state
+    
+    update_sprint_state "phase_loop_count" 5
+    
+    local count=$(get_phase_loop_count)
+    assert_equal "$count" "5"
+}
+
+@test "update_sprint_state handles boolean true" {
+    init_sprint_state
+    
+    update_sprint_state "project_done" "true"
+    
+    run is_project_marked_done
+    assert_success
+}
+
+@test "update_sprint_state handles boolean false" {
+    init_sprint_state
+    update_sprint_state "project_done" "true"
+    
+    update_sprint_state "project_done" "false"
+    
+    run is_project_marked_done
+    assert_failure
+}
+
+# ============================================================================
+# MARK PROJECT DONE TESTS
+# ============================================================================
+
+@test "mark_project_done ends current sprint" {
+    init_sprint_state
+    start_sprint
+    
+    mark_project_done
+    
+    local status=$(jq -r '.sprints_history[0].status' "$SPRINT_STATE_FILE")
+    assert_equal "$status" "completed"
+}
+
+@test "mark_project_done can be checked with is_project_marked_done" {
+    init_sprint_state
+    start_sprint
+    
+    run is_project_marked_done
+    assert_failure
+    
+    mark_project_done
+    
+    run is_project_marked_done
+    assert_success
+}

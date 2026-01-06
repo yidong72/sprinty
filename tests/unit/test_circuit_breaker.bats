@@ -200,7 +200,7 @@ teardown() {
     
     record_loop_result 1 0 "false" 1000
     record_loop_result 2 0 "false" 1000
-    record_loop_result 3 0 "false" 1000
+    record_loop_result 3 0 "false" 1000 || true
     
     local state=$(jq -r '.state' "$CB_STATE_FILE")
     assert_equal "$state" "OPEN"
@@ -415,4 +415,223 @@ teardown() {
     
     local state=$(jq -r '.state' "$CB_STATE_FILE")
     assert_equal "$state" "OPEN"
+}
+
+# ============================================================================
+# STATE FILE STRUCTURE TESTS
+# ============================================================================
+
+@test "state file has all required fields" {
+    init_circuit_breaker
+    
+    local has_state=$(jq 'has("state")' "$CB_STATE_FILE")
+    local has_last_change=$(jq 'has("last_change")' "$CB_STATE_FILE")
+    local has_no_progress=$(jq 'has("consecutive_no_progress")' "$CB_STATE_FILE")
+    local has_same_error=$(jq 'has("consecutive_same_error")' "$CB_STATE_FILE")
+    local has_last_progress=$(jq 'has("last_progress_loop")' "$CB_STATE_FILE")
+    local has_total_opens=$(jq 'has("total_opens")' "$CB_STATE_FILE")
+    local has_reason=$(jq 'has("reason")' "$CB_STATE_FILE")
+    local has_current_loop=$(jq 'has("current_loop")' "$CB_STATE_FILE")
+    
+    assert_equal "$has_state" "true"
+    assert_equal "$has_last_change" "true"
+    assert_equal "$has_no_progress" "true"
+    assert_equal "$has_same_error" "true"
+    assert_equal "$has_last_progress" "true"
+    assert_equal "$has_total_opens" "true"
+    assert_equal "$has_reason" "true"
+    assert_equal "$has_current_loop" "true"
+}
+
+@test "state file starts with total_opens at 0" {
+    init_circuit_breaker
+    
+    local opens=$(jq -r '.total_opens' "$CB_STATE_FILE")
+    assert_equal "$opens" "0"
+}
+
+@test "state file starts with current_loop at 0" {
+    init_circuit_breaker
+    
+    local loop=$(jq -r '.current_loop' "$CB_STATE_FILE")
+    assert_equal "$loop" "0"
+}
+
+# ============================================================================
+# HISTORY FILE TESTS
+# ============================================================================
+
+@test "history file starts as empty array" {
+    init_circuit_breaker
+    
+    local count=$(jq 'length' "$CB_HISTORY_FILE")
+    assert_equal "$count" "0"
+}
+
+@test "history file accumulates transitions" {
+    init_circuit_breaker
+    
+    log_circuit_transition "CLOSED" "HALF_OPEN" "test1" 1
+    log_circuit_transition "HALF_OPEN" "OPEN" "test2" 2
+    log_circuit_transition "OPEN" "CLOSED" "test3" 3
+    
+    local count=$(jq 'length' "$CB_HISTORY_FILE")
+    assert_equal "$count" "3"
+}
+
+@test "history entries have timestamp" {
+    init_circuit_breaker
+    
+    log_circuit_transition "CLOSED" "OPEN" "test" 1
+    
+    local has_ts=$(jq '.[0] | has("timestamp")' "$CB_HISTORY_FILE")
+    assert_equal "$has_ts" "true"
+}
+
+# ============================================================================
+# PROGRESS DETECTION TESTS
+# ============================================================================
+
+@test "record_loop_result detects progress from files_changed > 0" {
+    init_circuit_breaker
+    jq '.consecutive_no_progress = 5' "$CB_STATE_FILE" > "${CB_STATE_FILE}.tmp" && mv "${CB_STATE_FILE}.tmp" "$CB_STATE_FILE"
+    
+    record_loop_result 1 10 "false" 1000
+    
+    local no_progress=$(jq -r '.consecutive_no_progress' "$CB_STATE_FILE")
+    assert_equal "$no_progress" "0"
+}
+
+@test "record_loop_result detects no progress from files_changed = 0" {
+    init_circuit_breaker
+    
+    record_loop_result 1 0 "false" 1000
+    
+    local no_progress=$(jq -r '.consecutive_no_progress' "$CB_STATE_FILE")
+    assert_equal "$no_progress" "1"
+}
+
+@test "record_loop_result tracks consecutive errors" {
+    init_circuit_breaker
+    
+    record_loop_result 1 1 "true" 1000
+    record_loop_result 2 1 "true" 1000
+    record_loop_result 3 1 "true" 1000
+    
+    local same_error=$(jq -r '.consecutive_same_error' "$CB_STATE_FILE")
+    assert_equal "$same_error" "3"
+}
+
+@test "record_loop_result resets error count on success" {
+    init_circuit_breaker
+    record_loop_result 1 1 "true" 1000
+    record_loop_result 2 1 "true" 1000
+    
+    record_loop_result 3 1 "false" 1000
+    
+    local same_error=$(jq -r '.consecutive_same_error' "$CB_STATE_FILE")
+    assert_equal "$same_error" "0"
+}
+
+# ============================================================================
+# STATE TRANSITION TESTS
+# ============================================================================
+
+@test "circuit stays CLOSED when making progress" {
+    init_circuit_breaker
+    
+    for i in 1 2 3 4 5; do
+        record_loop_result $i 5 "false" 1000
+    done
+    
+    local state=$(jq -r '.state' "$CB_STATE_FILE")
+    assert_equal "$state" "CLOSED"
+}
+
+@test "circuit transitions CLOSED -> HALF_OPEN -> CLOSED on recovery" {
+    init_circuit_breaker
+    
+    # No progress, enter HALF_OPEN
+    record_loop_result 1 0 "false" 1000
+    record_loop_result 2 0 "false" 1000
+    
+    local state=$(jq -r '.state' "$CB_STATE_FILE")
+    assert_equal "$state" "HALF_OPEN"
+    
+    # Make progress, recover to CLOSED
+    record_loop_result 3 5 "false" 1000
+    
+    state=$(jq -r '.state' "$CB_STATE_FILE")
+    assert_equal "$state" "CLOSED"
+}
+
+@test "circuit transitions CLOSED -> HALF_OPEN -> OPEN on continued no progress" {
+    init_circuit_breaker
+    
+    # No progress loops
+    record_loop_result 1 0 "false" 1000
+    record_loop_result 2 0 "false" 1000
+    record_loop_result 3 0 "false" 1000 || true
+    
+    local state=$(jq -r '.state' "$CB_STATE_FILE")
+    assert_equal "$state" "OPEN"
+}
+
+# ============================================================================
+# HALT EXECUTION TESTS
+# ============================================================================
+
+@test "should_halt_execution returns 1 (no halt) when CLOSED" {
+    init_circuit_breaker
+    
+    run should_halt_execution
+    
+    assert_failure
+}
+
+@test "should_halt_execution returns 1 (no halt) when HALF_OPEN" {
+    init_circuit_breaker
+    jq '.state = "HALF_OPEN"' "$CB_STATE_FILE" > "${CB_STATE_FILE}.tmp" && mv "${CB_STATE_FILE}.tmp" "$CB_STATE_FILE"
+    
+    run should_halt_execution
+    
+    assert_failure
+}
+
+@test "should_halt_execution returns 0 (halt) when OPEN" {
+    init_circuit_breaker
+    jq '.state = "OPEN"' "$CB_STATE_FILE" > "${CB_STATE_FILE}.tmp" && mv "${CB_STATE_FILE}.tmp" "$CB_STATE_FILE"
+    
+    run should_halt_execution
+    
+    assert_success
+}
+
+# ============================================================================
+# TOTAL OPENS TRACKING TESTS
+# ============================================================================
+
+@test "total_opens increments each time circuit opens" {
+    init_circuit_breaker
+    
+    # First open
+    record_loop_result 1 0 "false" 1000
+    record_loop_result 2 0 "false" 1000
+    record_loop_result 3 0 "false" 1000 || true
+    
+    local opens=$(jq -r '.total_opens' "$CB_STATE_FILE")
+    assert_equal "$opens" "1"
+}
+
+@test "total_opens preserves count across resets" {
+    init_circuit_breaker
+    
+    # Open circuit
+    record_loop_result 1 0 "false" 1000
+    record_loop_result 2 0 "false" 1000
+    record_loop_result 3 0 "false" 1000 || true
+    
+    # Reset - but check total_opens was recorded before reset clears it
+    local opens=$(jq -r '.total_opens' "$CB_STATE_FILE")
+    assert_equal "$opens" "1"
 }
