@@ -1,0 +1,35 @@
+# Ralph runtime files
+.call_count
+.last_reset
+.exit_signals
+.circuit_breaker_state
+.circuit_breaker_history
+.response_analysis
+.last_output_length
+status.json
+progress.json
+logs/*.log
+
+# Environment
+.env
+.env.*
+
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
