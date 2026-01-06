@@ -830,3 +830,246 @@ teardown() {
     
     [[ "$result" == "null" ]]
 }
+
+# ============================================================================
+# TASK BREAKDOWN TESTS
+# ============================================================================
+
+@test "break_down_task creates subtask with correct id" {
+    init_backlog "test-project"
+    add_backlog_item "Big Feature" "feature" 1 10
+    
+    result=$(break_down_task "TASK-001" "Subtask A" 3)
+    
+    assert_equal "$result" "TASK-001a"
+}
+
+@test "break_down_task creates multiple subtasks with sequential ids" {
+    init_backlog "test-project"
+    add_backlog_item "Big Feature" "feature" 1 10
+    
+    result1=$(break_down_task "TASK-001" "Subtask A" 3)
+    result2=$(break_down_task "TASK-001" "Subtask B" 4)
+    result3=$(break_down_task "TASK-001" "Subtask C" 3)
+    
+    assert_equal "$result1" "TASK-001a"
+    assert_equal "$result2" "TASK-001b"
+    assert_equal "$result3" "TASK-001c"
+}
+
+@test "break_down_task sets correct parent_id on subtask" {
+    init_backlog "test-project"
+    add_backlog_item "Big Feature" "feature" 1 10
+    
+    break_down_task "TASK-001" "Subtask A" 3
+    
+    local parent_id=$(jq -r '.items[] | select(.id == "TASK-001a") | .parent_id' "$BACKLOG_FILE")
+    assert_equal "$parent_id" "TASK-001"
+}
+
+@test "break_down_task updates parent's subtasks array" {
+    init_backlog "test-project"
+    add_backlog_item "Big Feature" "feature" 1 10
+    
+    break_down_task "TASK-001" "Subtask A" 3
+    break_down_task "TASK-001" "Subtask B" 4
+    
+    local subtask_count=$(jq '.items[] | select(.id == "TASK-001") | .subtasks | length' "$BACKLOG_FILE")
+    assert_equal "$subtask_count" "2"
+    
+    local first_subtask=$(jq -r '.items[] | select(.id == "TASK-001") | .subtasks[0]' "$BACKLOG_FILE")
+    assert_equal "$first_subtask" "TASK-001a"
+}
+
+@test "break_down_task inherits sprint_id from parent" {
+    init_backlog "test-project"
+    add_backlog_item "Big Feature" "feature" 1 10
+    assign_to_sprint "TASK-001" 2
+    
+    break_down_task "TASK-001" "Subtask A" 3
+    
+    local sprint_id=$(jq '.items[] | select(.id == "TASK-001a") | .sprint_id' "$BACKLOG_FILE")
+    assert_equal "$sprint_id" "2"
+}
+
+@test "break_down_task inherits priority from parent" {
+    init_backlog "test-project"
+    add_backlog_item "Big Feature" "feature" 2 10
+    
+    break_down_task "TASK-001" "Subtask A" 3
+    
+    local priority=$(jq '.items[] | select(.id == "TASK-001a") | .priority' "$BACKLOG_FILE")
+    assert_equal "$priority" "2"
+}
+
+@test "break_down_task sets subtask status to ready" {
+    init_backlog "test-project"
+    add_backlog_item "Big Feature" "feature" 1 10
+    
+    break_down_task "TASK-001" "Subtask A" 3
+    
+    local status=$(jq -r '.items[] | select(.id == "TASK-001a") | .status' "$BACKLOG_FILE")
+    assert_equal "$status" "ready"
+}
+
+@test "break_down_task sets correct story points" {
+    init_backlog "test-project"
+    add_backlog_item "Big Feature" "feature" 1 10
+    
+    break_down_task "TASK-001" "Subtask A" 5
+    
+    local points=$(jq '.items[] | select(.id == "TASK-001a") | .story_points' "$BACKLOG_FILE")
+    assert_equal "$points" "5"
+}
+
+@test "break_down_task fails for non-existent parent" {
+    init_backlog "test-project"
+    
+    run break_down_task "TASK-999" "Subtask" 3
+    
+    assert_failure
+}
+
+@test "needs_breakdown returns true for tasks >= 9 points" {
+    init_backlog "test-project"
+    add_backlog_item "Big Feature" "feature" 1 9
+    
+    run needs_breakdown "TASK-001"
+    
+    assert_success
+}
+
+@test "needs_breakdown returns true for tasks > 9 points" {
+    init_backlog "test-project"
+    add_backlog_item "Huge Feature" "feature" 1 15
+    
+    run needs_breakdown "TASK-001"
+    
+    assert_success
+}
+
+@test "needs_breakdown returns false for tasks < 9 points" {
+    init_backlog "test-project"
+    add_backlog_item "Small Feature" "feature" 1 5
+    
+    run needs_breakdown "TASK-001"
+    
+    assert_failure
+}
+
+@test "needs_breakdown returns false for tasks = 8 points" {
+    init_backlog "test-project"
+    add_backlog_item "Medium Feature" "feature" 1 8
+    
+    run needs_breakdown "TASK-001"
+    
+    assert_failure
+}
+
+@test "needs_breakdown returns false if task already has subtasks" {
+    init_backlog "test-project"
+    add_backlog_item "Big Feature" "feature" 1 10
+    break_down_task "TASK-001" "Subtask A" 5
+    
+    run needs_breakdown "TASK-001"
+    
+    assert_failure
+}
+
+@test "get_subtasks returns empty array for task without subtasks" {
+    init_backlog "test-project"
+    add_backlog_item "Task" "feature" 1 5
+    
+    result=$(get_subtasks "TASK-001")
+    
+    local count=$(echo "$result" | jq 'length')
+    assert_equal "$count" "0"
+}
+
+@test "get_subtasks returns all subtasks for parent" {
+    init_backlog "test-project"
+    add_backlog_item "Big Feature" "feature" 1 10
+    break_down_task "TASK-001" "Subtask A" 3
+    break_down_task "TASK-001" "Subtask B" 4
+    
+    result=$(get_subtasks "TASK-001")
+    
+    local count=$(echo "$result" | jq 'length')
+    assert_equal "$count" "2"
+}
+
+@test "get_subtasks returns subtasks with correct parent_id" {
+    init_backlog "test-project"
+    add_backlog_item "Feature 1" "feature" 1 10
+    add_backlog_item "Feature 2" "feature" 1 10
+    break_down_task "TASK-001" "Subtask A" 3
+    break_down_task "TASK-002" "Subtask B" 4
+    
+    result=$(get_subtasks "TASK-001")
+    
+    local count=$(echo "$result" | jq 'length')
+    assert_equal "$count" "1"
+    
+    local id=$(echo "$result" | jq -r '.[0].id')
+    assert_equal "$id" "TASK-001a"
+}
+
+@test "update_parent_status sets parent to qa_failed when any subtask qa_failed" {
+    init_backlog "test-project"
+    add_backlog_item "Big Feature" "feature" 1 10
+    break_down_task "TASK-001" "Subtask A" 3
+    break_down_task "TASK-001" "Subtask B" 4
+    
+    update_item_status "TASK-001a" "done"
+    update_item_status "TASK-001b" "qa_failed"
+    
+    update_parent_status "TASK-001"
+    
+    local status=$(jq -r '.items[] | select(.id == "TASK-001") | .status' "$BACKLOG_FILE")
+    assert_equal "$status" "qa_failed"
+}
+
+@test "update_parent_status sets parent to done when all subtasks done" {
+    init_backlog "test-project"
+    add_backlog_item "Big Feature" "feature" 1 10
+    break_down_task "TASK-001" "Subtask A" 3
+    break_down_task "TASK-001" "Subtask B" 4
+    
+    update_item_status "TASK-001a" "done"
+    update_item_status "TASK-001b" "done"
+    
+    update_parent_status "TASK-001"
+    
+    local status=$(jq -r '.items[] | select(.id == "TASK-001") | .status' "$BACKLOG_FILE")
+    assert_equal "$status" "done"
+}
+
+@test "update_parent_status sets parent to in_progress when any subtask in_progress" {
+    init_backlog "test-project"
+    add_backlog_item "Big Feature" "feature" 1 10
+    break_down_task "TASK-001" "Subtask A" 3
+    break_down_task "TASK-001" "Subtask B" 4
+    
+    update_item_status "TASK-001a" "in_progress"
+    update_item_status "TASK-001b" "ready"
+    
+    update_parent_status "TASK-001"
+    
+    local status=$(jq -r '.items[] | select(.id == "TASK-001") | .status' "$BACKLOG_FILE")
+    assert_equal "$status" "in_progress"
+}
+
+@test "update_parent_status sets parent to implemented when subtasks implemented" {
+    init_backlog "test-project"
+    add_backlog_item "Big Feature" "feature" 1 10
+    break_down_task "TASK-001" "Subtask A" 3
+    break_down_task "TASK-001" "Subtask B" 4
+    
+    update_item_status "TASK-001a" "implemented"
+    update_item_status "TASK-001b" "implemented"
+    
+    update_parent_status "TASK-001"
+    
+    local status=$(jq -r '.items[] | select(.id == "TASK-001") | .status' "$BACKLOG_FILE")
+    assert_equal "$status" "implemented"
+}

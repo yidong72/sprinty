@@ -119,18 +119,19 @@ EOF
     start_sprint
     assign_to_sprint "TASK-001" 1
     
-    # Simulate agent output analysis
+    # Simulate agent output with PROJECT_DONE signal (not PHASE_COMPLETE which is ignored)
     cat > "output1.log" << 'EOF'
 Implementing feature...
 ---SPRINTY_STATUS---
-PHASE_COMPLETE: true
+PROJECT_DONE: true
 ---END_SPRINTY_STATUS---
 EOF
     
     analyze_output_for_completion "output1.log" 1
     
-    local indicators=$(jq '.completion_indicators | length' "$EXIT_SIGNALS_FILE")
-    assert_equal "$indicators" "1"
+    # PROJECT_DONE gets recorded as a done_signal, not completion_indicator
+    local done_signals=$(jq '.done_signals | length' "$EXIT_SIGNALS_FILE")
+    assert_equal "$done_signals" "1"
 }
 
 @test "integration: done detector accumulates multiple signal types" {
@@ -297,6 +298,11 @@ EOF
 
 @test "integration: analyze_output_for_completion detects all patterns" {
     init_exit_signals
+    init_backlog "pattern-test"
+    
+    # Add a task and mark it done so TASKS_REMAINING: 0 can be detected
+    add_backlog_item "Task 1" "feature" 1 5
+    update_item_status "TASK-001" "done"
     
     # Create output with multiple patterns
     cat > "multi_pattern.log" << 'EOF'
@@ -304,7 +310,6 @@ Working on implementation...
 
 ---SPRINTY_STATUS---
 PROJECT_DONE: true
-PHASE_COMPLETE: true
 TASKS_REMAINING: 0
 ---END_SPRINTY_STATUS---
 
@@ -313,15 +318,16 @@ EOF
     
     result=$(analyze_output_for_completion "multi_pattern.log" 1)
     
-    # Should detect multiple signals
-    [[ $result -ge 3 ]]
+    # Should detect: PROJECT_DONE (done_signal), completion_keywords (indicator), TASKS_REMAINING:0 (indicator if backlog complete)
+    [[ $result -ge 2 ]]
     
     # Check signals were recorded
     local done_count=$(jq '.done_signals | length' "$EXIT_SIGNALS_FILE")
     local indicator_count=$(jq '.completion_indicators | length' "$EXIT_SIGNALS_FILE")
     
     [[ $done_count -ge 1 ]]
-    [[ $indicator_count -ge 1 ]]
+    # completion_keywords and TASKS_REMAINING:0 should both be detected
+    [[ $indicator_count -ge 2 ]]
 }
 
 @test "integration: reset signals allows fresh detection" {

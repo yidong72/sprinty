@@ -110,19 +110,46 @@ cargo test
 
 ## Breaking Down Large Tasks
 
-If a task has >8 story points, break it into subtasks:
+**Mandatory Breakdown Thresholds:**
+| Story Points | Action |
+|--------------|--------|
+| 1-5 | No breakdown required |
+| 6-8 | Breakdown **recommended** if scope is unclear |
+| 9+ | **Mandatory breakdown** before implementation |
 
-1. Create subtask items in backlog.json
-2. Set `parent_id` to the main task ID
-3. Add subtask IDs to parent's `subtasks` array
+When breaking down a task:
+1. Use the `break_down_task` helper function
+2. Each subtask should be 2-5 story points
+3. Subtask points should sum to ≤ parent points
 4. Implement subtasks individually
-5. Mark parent as `implemented` when all subtasks are done
+5. Parent status auto-updates based on subtasks
 
-Example:
+### Using break_down_task Helper
+
 ```bash
-# Add subtask
+# Source the backlog manager (if not already loaded)
+source lib/backlog_manager.sh
+
+# Break down a large task into subtasks
+break_down_task "TASK-001" "Implement login form" 3 "Create the login UI component"
+break_down_task "TASK-001" "Add authentication API" 3 "Backend auth endpoint"
+break_down_task "TASK-001" "Add session management" 2 "JWT token handling"
+
+# Check if a task needs breakdown
+if needs_breakdown "TASK-001"; then
+    echo "This task needs to be broken down first"
+fi
+
+# Get all subtasks of a parent
+get_subtasks "TASK-001"
+```
+
+### Manual Method (Alternative)
+
+```bash
+# Add subtask manually with jq
 jq '.items += [{
-  "id": "TASK-002",
+  "id": "TASK-001a",
   "title": "Subtask of TASK-001",
   "type": "feature",
   "priority": 1,
@@ -131,12 +158,18 @@ jq '.items += [{
   "sprint_id": 1,
   "parent_id": "TASK-001",
   "acceptance_criteria": ["AC1"],
-  "dependencies": []
+  "dependencies": [],
+  "subtasks": []
 }]' backlog.json > tmp.json && mv tmp.json backlog.json
 
 # Update parent's subtasks array
-jq '(.items[] | select(.id == "TASK-001")).subtasks += ["TASK-002"]' backlog.json > tmp.json && mv tmp.json backlog.json
+jq '(.items[] | select(.id == "TASK-001")).subtasks += ["TASK-001a"]' backlog.json > tmp.json && mv tmp.json backlog.json
 ```
+
+### Subtask Naming Convention
+- Subtask IDs: Parent ID + letter suffix (TASK-001a, TASK-001b, etc.)
+- Subtasks inherit sprint_id and priority from parent
+- Subtasks inherit acceptance_criteria from parent (can be refined)
 
 ## Rework Handling
 

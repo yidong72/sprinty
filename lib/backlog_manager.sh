@@ -476,6 +476,163 @@ is_project_done() {
 }
 
 # ============================================================================
+# TASK BREAKDOWN
+# ============================================================================
+
+# Break down a large task into subtasks
+# Usage: break_down_task <parent_id> <subtask_title> <subtask_points> [subtask_description]
+# Returns: The new subtask ID
+break_down_task() {
+    local parent_id=$1
+    local subtask_title=$2
+    local subtask_points=$3
+    local subtask_description=${4:-""}
+    
+    if ! is_backlog_initialized; then
+        log_status "ERROR" "Backlog not initialized"
+        return 1
+    fi
+    
+    # Verify parent exists
+    local parent=$(get_backlog_item "$parent_id")
+    if [[ -z "$parent" || "$parent" == "null" ]]; then
+        log_status "ERROR" "Parent task not found: $parent_id"
+        return 1
+    fi
+    
+    # Get parent's sprint_id and priority
+    local parent_sprint=$(echo "$parent" | jq -r '.sprint_id // "null"')
+    local parent_priority=$(echo "$parent" | jq -r '.priority')
+    local parent_ac=$(echo "$parent" | jq '.acceptance_criteria // []')
+    
+    # Generate subtask ID (parent_id + letter suffix: TASK-001a, TASK-001b, etc.)
+    local existing_subtasks=$(jq --arg pid "$parent_id" '[.items[] | select(.parent_id == $pid)] | length' "$BACKLOG_FILE")
+    local suffix_num=$((97 + existing_subtasks))  # ASCII 'a' = 97
+    local suffix=$(printf "\\$(printf '%03o' $suffix_num)")
+    local subtask_id="${parent_id}${suffix}"
+    
+    local timestamp=$(get_iso_timestamp)
+    
+    # Create subtask
+    local subtask=$(jq -n \
+        --arg id "$subtask_id" \
+        --arg title "$subtask_title" \
+        --arg desc "$subtask_description" \
+        --argjson priority "$parent_priority" \
+        --argjson points "$subtask_points" \
+        --argjson sprint "$parent_sprint" \
+        --arg parent "$parent_id" \
+        --argjson ac "$parent_ac" \
+        --arg ts "$timestamp" \
+        '{
+            id: $id,
+            title: $title,
+            description: $desc,
+            type: "feature",
+            priority: $priority,
+            story_points: $points,
+            status: "ready",
+            sprint_id: $sprint,
+            acceptance_criteria: $ac,
+            dependencies: [],
+            parent_id: $parent,
+            subtasks: [],
+            created_at: $ts,
+            updated_at: $ts
+        }')
+    
+    # Add subtask to items
+    jq --argjson subtask "$subtask" --arg ts "$timestamp" '
+        .items += [$subtask] |
+        .metadata.total_items = (.items | length) |
+        .metadata.total_points = ([.items[].story_points] | add // 0) |
+        .metadata.last_updated = $ts
+    ' "$BACKLOG_FILE" > "${BACKLOG_FILE}.tmp" && mv "${BACKLOG_FILE}.tmp" "$BACKLOG_FILE"
+    
+    # Update parent's subtasks array
+    jq --arg pid "$parent_id" --arg sid "$subtask_id" --arg ts "$timestamp" '
+        (.items[] | select(.id == $pid) | .subtasks) += [$sid] |
+        (.items[] | select(.id == $pid) | .updated_at) = $ts
+    ' "$BACKLOG_FILE" > "${BACKLOG_FILE}.tmp" && mv "${BACKLOG_FILE}.tmp" "$BACKLOG_FILE"
+    
+    log_status "SUCCESS" "Created subtask $subtask_id under $parent_id"
+    echo "$subtask_id"
+}
+
+# Check if a task needs breakdown (>8 points per PRD)
+needs_breakdown() {
+    local task_id=$1
+    
+    local task=$(get_backlog_item "$task_id")
+    if [[ -z "$task" || "$task" == "null" ]]; then
+        return 1
+    fi
+    
+    local points=$(echo "$task" | jq -r '.story_points')
+    local has_subtasks=$(echo "$task" | jq '.subtasks | length > 0')
+    
+    # Task needs breakdown if:
+    # - Has >= 9 story points (mandatory per PRD)
+    # - Doesn't already have subtasks
+    if [[ "$has_subtasks" == "false" && $points -ge 9 ]]; then
+        return 0  # Needs breakdown
+    fi
+    
+    return 1  # Doesn't need breakdown
+}
+
+# Get all subtasks for a parent
+get_subtasks() {
+    local parent_id=$1
+    
+    if ! is_backlog_initialized; then
+        echo "[]"
+        return
+    fi
+    
+    jq --arg pid "$parent_id" '[.items[] | select(.parent_id == $pid)]' "$BACKLOG_FILE"
+}
+
+# Update parent status based on subtasks (rollup)
+update_parent_status() {
+    local parent_id=$1
+    
+    local subtasks=$(get_subtasks "$parent_id")
+    local subtask_count=$(echo "$subtasks" | jq 'length')
+    
+    if [[ $subtask_count -eq 0 ]]; then
+        return 0  # No subtasks, nothing to rollup
+    fi
+    
+    # Check subtask statuses (priority order per PRD)
+    local has_qa_failed=$(echo "$subtasks" | jq '[.[] | select(.status == "qa_failed")] | length > 0')
+    local has_in_progress=$(echo "$subtasks" | jq '[.[] | select(.status == "in_progress")] | length > 0')
+    local has_implemented=$(echo "$subtasks" | jq '[.[] | select(.status == "implemented")] | length > 0')
+    local has_qa_in_progress=$(echo "$subtasks" | jq '[.[] | select(.status == "qa_in_progress")] | length > 0')
+    local all_done=$(echo "$subtasks" | jq 'all(.status == "done" or .status == "cancelled")')
+    local all_qa_passed=$(echo "$subtasks" | jq 'all(.status == "qa_passed" or .status == "done" or .status == "cancelled")')
+    
+    local new_status=""
+    
+    # Determine parent status based on subtask statuses
+    if [[ "$has_qa_failed" == "true" ]]; then
+        new_status="qa_failed"
+    elif [[ "$has_in_progress" == "true" ]]; then
+        new_status="in_progress"
+    elif [[ "$has_implemented" == "true" || "$has_qa_in_progress" == "true" ]]; then
+        new_status="implemented"
+    elif [[ "$all_qa_passed" == "true" && "$all_done" != "true" ]]; then
+        new_status="qa_passed"
+    elif [[ "$all_done" == "true" ]]; then
+        new_status="done"
+    fi
+    
+    if [[ -n "$new_status" ]]; then
+        update_item_status "$parent_id" "$new_status"
+    fi
+}
+
+# ============================================================================
 # DISPLAY HELPERS
 # ============================================================================
 
@@ -553,5 +710,9 @@ export -f remove_backlog_item
 export -f has_qa_failed_tasks
 export -f is_sprint_complete
 export -f is_project_done
+export -f break_down_task
+export -f needs_breakdown
+export -f get_subtasks
+export -f update_parent_status
 export -f list_backlog
 export -f show_backlog_summary
