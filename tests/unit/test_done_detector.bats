@@ -182,13 +182,32 @@ teardown() {
     [[ $result -ge 1 ]]
 }
 
-@test "analyze_output_for_completion detects TASKS_REMAINING: 0" {
+@test "analyze_output_for_completion detects TASKS_REMAINING: 0 only when backlog complete" {
     init_exit_signals
+    init_backlog "test"
+    add_backlog_item "Task 1" "feature" 1 5
+    update_item_status "TASK-001" "done"
+    
     echo "TASKS_REMAINING: 0" > "output.log"
     
     result=$(analyze_output_for_completion "output.log" 1)
     
+    # Should detect because backlog is actually complete
     [[ $result -ge 1 ]]
+}
+
+@test "analyze_output_for_completion ignores TASKS_REMAINING: 0 when backlog incomplete" {
+    init_exit_signals
+    init_backlog "test"
+    add_backlog_item "Task 1" "feature" 1 5
+    # Task still in backlog status, not done
+    
+    echo "TASKS_REMAINING: 0" > "output.log"
+    
+    result=$(analyze_output_for_completion "output.log" 1)
+    
+    # Should NOT detect because backlog is not complete
+    [[ $result -eq 0 ]]
 }
 
 @test "analyze_output_for_completion returns 0 for missing file" {

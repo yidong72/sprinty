@@ -183,9 +183,14 @@ analyze_output_for_completion() {
     fi
     
     # Check for TASKS_REMAINING: 0
+    # BUT verify against actual backlog to avoid false positives
+    # (agent might report 0 for current sprint, not entire project)
     if grep -q "TASKS_REMAINING:.*0" "$output_file" 2>/dev/null; then
-        record_completion_indicator "$loop_number" "no_tasks_remaining"
-        signals_found=$((signals_found + 1))
+        # Double-check: only count if backlog is actually complete
+        if check_backlog_completion 2>/dev/null; then
+            record_completion_indicator "$loop_number" "no_tasks_remaining"
+            signals_found=$((signals_found + 1))
+        fi
     fi
     
     # Detect test-only loop patterns
