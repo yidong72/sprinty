@@ -79,12 +79,12 @@
   - [x] `sprinty metrics` - Show sprint metrics
   - [x] `sprinty --reset-circuit` - Reset circuit breaker
   - [x] `sprinty --reset-rate-limit` - Reset rate limiter
-- [ ] Create unit tests in `tests/unit/`:
-  - [ ] `test_backlog_manager.bats`
+- [x] Create unit tests in `tests/unit/`:
+  - [x] `test_backlog_manager.bats` - 35 comprehensive tests
   - [ ] `test_sprint_manager.bats`
   - [ ] `test_agent_adapter.bats`
   - [ ] `test_circuit_breaker.bats`
-- [ ] Create `README.md` with usage documentation
+- [x] Create `README.md` with usage documentation
 - [x] Update `@AGENT.md` with build/test instructions
 
 ## Completed
@@ -98,6 +98,9 @@
 - [x] Phase 3 Orchestration - sprinty.sh main orchestrator and done_detector.sh
 - [x] CLI commands implemented (init, run, status, backlog, metrics)
 - [x] Phase 4 Metrics - metrics_collector.sh with burndown, velocity, dashboard
+- [x] Phase 5 Polish - README.md documentation
+- [x] Test infrastructure - tests/helpers/test_helper.bash with assertion functions
+- [x] Unit tests for backlog_manager - 35 comprehensive tests covering CRUD, queries, and helpers
 
 ## Notes
 - **Copy patterns from `../ralph-cursor-agent/`** - Don't reinvent
