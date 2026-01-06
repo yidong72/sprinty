@@ -13,10 +13,13 @@ sprinty/
 │   ├── rate_limiter.sh        # ✅ API call management
 │   ├── backlog_manager.sh     # ✅ Backlog CRUD operations
 │   ├── sprint_manager.sh      # ✅ Sprint state management
-│   ├── agent_adapter.sh       # TODO: cursor-agent integration
+│   ├── agent_adapter.sh       # ✅ cursor-agent integration
 │   ├── metrics_collector.sh   # TODO: Burndown, velocity
 │   └── done_detector.sh       # TODO: Completion detection
-├── prompts/                   # TODO: Agent prompts
+├── prompts/
+│   ├── product_owner.md       # ✅ PO agent prompt
+│   ├── developer.md           # ✅ Developer agent prompt
+│   └── qa.md                  # ✅ QA agent prompt
 ├── templates/
 │   └── config.json            # ✅ Default configuration
 └── tests/unit/                # TODO: Unit tests (bats)
@@ -98,6 +101,26 @@ can_make_call && increment_call_counter
 show_rate_limit_status
 ```
 
+### lib/agent_adapter.sh
+Cursor-agent CLI integration for executing AI agents.
+```bash
+source lib/utils.sh
+source lib/agent_adapter.sh
+check_cursor_agent_installed
+init_cursor_project_config
+print_agent_status
+
+# Generate prompt for a role/phase
+prompt_file=$(generate_prompt "developer" "implementation" 1)
+
+# Execute agent
+run_agent "developer" "implementation" 1
+
+# Parse response
+output=$(get_last_agent_output)
+status_json=$(parse_sprinty_status_to_json "$output")
+```
+
 ## Configuration
 Default configuration is in `templates/config.json`. Copy to `.sprinty/config.json` for project-specific settings.
 
@@ -142,7 +165,9 @@ Key settings:
 - Update @fix_plan.md with progress
 
 ## Next Steps
-1. Create `lib/agent_adapter.sh` for cursor-agent integration
-2. Create agent prompts in `prompts/`
-3. Create main orchestrator `sprinty.sh`
-4. Add unit tests
+1. ~~Create `lib/agent_adapter.sh` for cursor-agent integration~~ ✅
+2. ~~Create agent prompts in `prompts/`~~ ✅
+3. Create `lib/done_detector.sh` for completion detection
+4. Create main orchestrator `sprinty.sh`
+5. Create `lib/metrics_collector.sh` for sprint metrics
+6. Add unit tests

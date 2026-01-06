@@ -18,24 +18,24 @@
 - [x] Create `templates/config.json` - Default configuration template
 
 ## High Priority (Phase 2: Agent Integration)
-- [ ] Create `lib/agent_adapter.sh` - cursor-agent wrapper:
-  - [ ] `execute_cursor_agent()` - Execute with timeout
-  - [ ] `parse_agent_response()` - Extract SPRINTY_STATUS block
-  - [ ] `generate_prompt()` - Generate role-specific prompts
-- [ ] Create `prompts/product_owner.md` - PO agent prompt:
-  - [ ] Sprint 0: Parse PRD, create backlog with acceptance criteria
-  - [ ] Planning: Select tasks based on capacity
-  - [ ] Review: Accept/reject tasks, calculate metrics
-- [ ] Create `prompts/developer.md` - Developer agent prompt:
-  - [ ] Pick highest priority ready task
-  - [ ] Break down tasks >8 points
-  - [ ] Implement with unit tests (85% coverage)
-  - [ ] Update status flow
-- [ ] Create `prompts/qa.md` - QA agent prompt:
-  - [ ] Test each "implemented" task
-  - [ ] Verify acceptance criteria
-  - [ ] Pass/fail with reasons
-  - [ ] Create bug tasks for issues
+- [x] Create `lib/agent_adapter.sh` - cursor-agent wrapper:
+  - [x] `execute_cursor_agent()` - Execute with timeout
+  - [x] `parse_agent_response()` - Extract SPRINTY_STATUS block (via parse_sprinty_status_to_json)
+  - [x] `generate_prompt()` - Generate role-specific prompts
+- [x] Create `prompts/product_owner.md` - PO agent prompt:
+  - [x] Sprint 0: Parse PRD, create backlog with acceptance criteria
+  - [x] Planning: Select tasks based on capacity
+  - [x] Review: Accept/reject tasks, calculate metrics
+- [x] Create `prompts/developer.md` - Developer agent prompt:
+  - [x] Pick highest priority ready task
+  - [x] Break down tasks >8 points
+  - [x] Implement with unit tests (85% coverage)
+  - [x] Update status flow
+- [x] Create `prompts/qa.md` - QA agent prompt:
+  - [x] Test each "implemented" task
+  - [x] Verify acceptance criteria
+  - [x] Pass/fail with reasons
+  - [x] Create bug tasks for issues
 
 ## Medium Priority (Phase 3: Orchestration)
 - [ ] Create `lib/done_detector.sh` - Completion detection logic
@@ -80,6 +80,7 @@
 - [x] Created specs/requirements.md
 - [x] Phase 1 Foundation - All lib modules created (utils, circuit_breaker, rate_limiter, backlog_manager, sprint_manager)
 - [x] templates/config.json with default configuration
+- [x] Phase 2 Agent Integration - agent_adapter.sh and all role prompts created
 
 ## Notes
 - **Copy patterns from `../ralph-cursor-agent/`** - Don't reinvent
