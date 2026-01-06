@@ -339,6 +339,8 @@ get_project_metrics() {
     
     local current_sprint=$(get_current_sprint)
     local project_done=$(get_sprint_state "project_done")
+    # Default to false if empty (for argjson compatibility)
+    [[ -z "$project_done" ]] && project_done="false"
     
     # Calculate overall completion
     local completion_pct=0

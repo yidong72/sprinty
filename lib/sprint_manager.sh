@@ -77,7 +77,13 @@ get_sprint_state() {
     fi
     
     local value
-    value=$(jq -r ".$field // empty" "$SPRINT_STATE_FILE" 2>/dev/null)
+    # Use 'has' to check if field exists, then get the value
+    # This properly handles false values (jq's // treats false as falsey)
+    if jq -e "has(\"$field\")" "$SPRINT_STATE_FILE" >/dev/null 2>&1; then
+        value=$(jq -r ".$field" "$SPRINT_STATE_FILE" 2>/dev/null)
+    else
+        value=""
+    fi
     echo "$value"
 }
 
