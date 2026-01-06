@@ -81,9 +81,9 @@
   - [x] `sprinty --reset-rate-limit` - Reset rate limiter
 - [x] Create unit tests in `tests/unit/`:
   - [x] `test_backlog_manager.bats` - 35 comprehensive tests
-  - [ ] `test_sprint_manager.bats`
-  - [ ] `test_agent_adapter.bats`
-  - [ ] `test_circuit_breaker.bats`
+  - [x] `test_sprint_manager.bats` - 55 comprehensive tests
+  - [x] `test_agent_adapter.bats` - 50 comprehensive tests
+  - [x] `test_circuit_breaker.bats` - 40 comprehensive tests
 - [x] Create `README.md` with usage documentation
 - [x] Update `@AGENT.md` with build/test instructions
 

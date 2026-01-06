@@ -22,7 +22,14 @@ sprinty/
 │   └── qa.md                  # ✅ QA agent prompt
 ├── templates/
 │   └── config.json            # ✅ Default configuration
-└── tests/unit/                # TODO: Unit tests (bats)
+└── tests/
+    ├── helpers/
+    │   └── test_helper.bash   # ✅ Test utilities and assertions
+    └── unit/
+        ├── test_backlog_manager.bats  # ✅ 35 tests
+        ├── test_sprint_manager.bats   # ✅ 55 tests
+        ├── test_circuit_breaker.bats  # ✅ 40 tests
+        └── test_agent_adapter.bats    # ✅ 50 tests
 ```
 
 ## Dependencies
@@ -63,8 +70,14 @@ sprinty/
 for f in lib/*.sh; do bash -n "$f" && echo "$f OK"; done
 for f in sprinty.sh; do bash -n "$f" && echo "$f OK"; done
 
-# Run unit tests (when available)
+# Run all unit tests
 bats tests/unit/
+
+# Run specific test suite
+bats tests/unit/test_backlog_manager.bats  # 35 tests
+bats tests/unit/test_sprint_manager.bats   # 55 tests
+bats tests/unit/test_circuit_breaker.bats  # 40 tests
+bats tests/unit/test_agent_adapter.bats    # 50 tests
 
 # Manual smoke test
 source lib/utils.sh
@@ -271,11 +284,19 @@ Key settings:
 - Use conventional commits: `feat:`, `fix:`, `docs:`
 - Update @fix_plan.md with progress
 
-## Next Steps
-1. ~~Create `lib/agent_adapter.sh` for cursor-agent integration~~ ✅
-2. ~~Create agent prompts in `prompts/`~~ ✅
-3. ~~Create `lib/done_detector.sh` for completion detection~~ ✅
-4. ~~Create main orchestrator `sprinty.sh`~~ ✅
-5. ~~Create `lib/metrics_collector.sh` for sprint metrics~~ ✅
-6. Add unit tests (bats)
-7. Create README.md documentation
+## Project Status: COMPLETE ✅
+
+All requirements from `specs/requirements.md` have been implemented:
+
+1. ✅ Phase 1: Foundation (lib/utils.sh, circuit_breaker.sh, rate_limiter.sh, backlog_manager.sh, sprint_manager.sh)
+2. ✅ Phase 2: Agent Integration (agent_adapter.sh, prompts/*)
+3. ✅ Phase 3: Orchestration (sprinty.sh, done_detector.sh)
+4. ✅ Phase 4: Metrics (metrics_collector.sh)
+5. ✅ Phase 5: Polish (CLI commands, documentation, unit tests)
+
+### Test Coverage
+- `test_backlog_manager.bats` - 35 tests
+- `test_sprint_manager.bats` - 55 tests
+- `test_circuit_breaker.bats` - 40 tests
+- `test_agent_adapter.bats` - 50 tests
+- **Total: ~180 unit tests**
