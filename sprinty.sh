@@ -632,13 +632,19 @@ Commands:
 Options:
     -h, --help              Show this help message
     -v, --version           Show version
+    --model <model>         Set AI model (default: opus-4.5-thinking)
     --reset-circuit         Reset circuit breaker
     --reset-rate-limit      Reset rate limiter
     --calls <num>           Set max calls per hour
 
+Available Models:
+    opus-4.5-thinking, opus-4.5, sonnet-4.5-thinking, sonnet-4.5,
+    opus-4.1, gemini-3-pro, gemini-3-flash, gpt-5.2, gpt-5.1, grok, auto
+
 Examples:
     sprinty init my-project --prd docs/PRD.md
     sprinty run
+    sprinty --model sonnet-4.5 run
     sprinty status --check-done
     sprinty backlog list
     sprinty backlog add "Implement login" --type feature --points 5
@@ -713,6 +719,19 @@ trap cleanup SIGINT SIGTERM
 # ============================================================================
 
 main() {
+    # Parse global options first
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --model)
+                export CURSOR_MODEL="$2"
+                shift 2
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+    
     local command=${1:-""}
     shift 2>/dev/null || true
     

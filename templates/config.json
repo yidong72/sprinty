@@ -28,7 +28,7 @@
     "min_coverage_percent": 85
   },
   "agent": {
-    "model": "claude-sonnet-4-20250514",
+    "model": "opus-4.5-thinking",
     "timeout_minutes": 15,
     "output_format": "text"
   },
