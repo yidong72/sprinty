@@ -4,9 +4,9 @@
 
 set -e
 
-# Source utilities
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/utils.sh"
+# Source utilities (use _LIB_DIR to avoid overwriting caller's SCRIPT_DIR)
+_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$_LIB_DIR/utils.sh"
 
 # ============================================================================
 # CONFIGURATION

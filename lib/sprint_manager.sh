@@ -4,10 +4,10 @@
 
 set -e
 
-# Source utilities and backlog manager
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/utils.sh"
-source "$SCRIPT_DIR/backlog_manager.sh"
+# Source utilities and backlog manager (use _LIB_DIR to avoid overwriting caller's SCRIPT_DIR)
+_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$_LIB_DIR/utils.sh"
+source "$_LIB_DIR/backlog_manager.sh"
 
 # ============================================================================
 # CONFIGURATION

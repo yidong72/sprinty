@@ -6,11 +6,11 @@
 
 set -e
 
-# Source utilities and dependencies
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/utils.sh"
-source "$SCRIPT_DIR/backlog_manager.sh"
-source "$SCRIPT_DIR/sprint_manager.sh"
+# Source utilities and dependencies (use _LIB_DIR to avoid overwriting caller's SCRIPT_DIR)
+_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$_LIB_DIR/utils.sh"
+source "$_LIB_DIR/backlog_manager.sh"
+source "$_LIB_DIR/sprint_manager.sh"
 
 # ============================================================================
 # CONFIGURATION
