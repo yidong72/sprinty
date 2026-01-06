@@ -172,11 +172,9 @@ analyze_output_for_completion() {
         signals_found=$((signals_found + 1))
     fi
     
-    # Check for PHASE_COMPLETE: true
-    if grep -q "PHASE_COMPLETE:.*true" "$output_file" 2>/dev/null; then
-        record_completion_indicator "$loop_number" "phase_complete"
-        signals_found=$((signals_found + 1))
-    fi
+    # NOTE: PHASE_COMPLETE: true is NOT a completion indicator!
+    # It's a normal phase transition signal that happens after every phase.
+    # We only track PROJECT_DONE and actual completion keywords.
     
     # Check for completion keywords (case-insensitive)
     if grep -qiE "(project.*complete|all.*tasks.*done|all.*items.*completed|nothing.*left.*to.*implement|🎉.*done|✅.*project.*complete)" "$output_file" 2>/dev/null; then

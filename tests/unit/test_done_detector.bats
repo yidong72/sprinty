@@ -162,13 +162,15 @@ teardown() {
     [[ $result -ge 1 ]]
 }
 
-@test "analyze_output_for_completion detects PHASE_COMPLETE: true" {
+@test "analyze_output_for_completion ignores PHASE_COMPLETE (not a project completion signal)" {
     init_exit_signals
     echo "PHASE_COMPLETE: true" > "output.log"
     
     result=$(analyze_output_for_completion "output.log" 1)
     
-    [[ $result -ge 1 ]]
+    # PHASE_COMPLETE is a normal phase transition, not a project completion signal
+    # It should NOT count towards completion indicators
+    [[ $result -eq 0 ]]
 }
 
 @test "analyze_output_for_completion detects completion keywords" {
