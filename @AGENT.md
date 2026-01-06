@@ -1,158 +1,148 @@
-# Agent Build Instructions
+# Sprinty Agent Build Instructions
 
-## Project Setup
-```bash
-# Install dependencies (example for Node.js project)
-npm install
+## Project Overview
+Sprinty is a sprint-based software development orchestrator that uses cursor-agent to execute different roles (Product Owner, Developer, QA) in phases.
 
-# Or for Python project
-pip install -r requirements.txt
-
-# Or for Rust project  
-cargo build
+## Project Structure
 ```
+sprinty/
+├── sprinty.sh                 # Main orchestrator (TODO)
+├── lib/
+│   ├── utils.sh               # ✅ Logging, date functions
+│   ├── circuit_breaker.sh     # ✅ Halt on repeated failures
+│   ├── rate_limiter.sh        # ✅ API call management
+│   ├── backlog_manager.sh     # ✅ Backlog CRUD operations
+│   ├── sprint_manager.sh      # ✅ Sprint state management
+│   ├── agent_adapter.sh       # TODO: cursor-agent integration
+│   ├── metrics_collector.sh   # TODO: Burndown, velocity
+│   └── done_detector.sh       # TODO: Completion detection
+├── prompts/                   # TODO: Agent prompts
+├── templates/
+│   └── config.json            # ✅ Default configuration
+└── tests/unit/                # TODO: Unit tests (bats)
+```
+
+## Dependencies
+- **bash** >= 4.0
+- **jq** - JSON processing (required)
+- **cursor-agent** - AI agent CLI (for orchestration)
+- **bats** - Testing framework (optional, for tests)
 
 ## Running Tests
 ```bash
-# Node.js
-npm test
+# Syntax check all modules
+for f in lib/*.sh; do bash -n "$f" && echo "$f OK"; done
 
-# Python
-pytest
+# Run unit tests (when available)
+bats tests/unit/
 
-# Rust
-cargo test
+# Manual smoke test
+source lib/utils.sh
+source lib/backlog_manager.sh
+source lib/sprint_manager.sh
+init_backlog "test-project"
+add_backlog_item "Test task" "feature" 1 3
+list_backlog
 ```
 
-## Build Commands
+## Key Modules
+
+### lib/utils.sh
+Core utilities: logging, date functions, JSON helpers.
 ```bash
-# Production build
-npm run build
-# or
-cargo build --release
+source lib/utils.sh
+log_status "INFO" "Hello from Sprinty"
+get_iso_timestamp  # Returns ISO 8601 timestamp
 ```
 
-## Development Server
+### lib/backlog_manager.sh
+Backlog CRUD operations using jq.
 ```bash
-# Start development server
-npm run dev
-# or
-cargo run
+source lib/utils.sh
+source lib/backlog_manager.sh
+init_backlog "my-project"
+task_id=$(add_backlog_item "Implement login" "feature" 1 5)
+update_item_status "$task_id" "in_progress"
+list_backlog
 ```
+
+### lib/sprint_manager.sh
+Sprint state management.
+```bash
+source lib/utils.sh
+source lib/backlog_manager.sh
+source lib/sprint_manager.sh
+init_sprint_state
+start_sprint
+set_current_phase "implementation"
+show_sprint_status
+```
+
+### lib/circuit_breaker.sh
+Prevents runaway execution when no progress is detected.
+```bash
+source lib/utils.sh
+source lib/circuit_breaker.sh
+init_circuit_breaker
+record_loop_result 1 5 "false" 1000  # files_changed=5, no errors
+show_circuit_status
+```
+
+### lib/rate_limiter.sh
+API call rate limiting.
+```bash
+source lib/utils.sh
+source lib/rate_limiter.sh
+init_rate_limiter
+can_make_call && increment_call_counter
+show_rate_limit_status
+```
+
+## Configuration
+Default configuration is in `templates/config.json`. Copy to `.sprinty/config.json` for project-specific settings.
+
+Key settings:
+- `sprint.max_sprints`: Maximum number of sprints (default: 10)
+- `sprint.default_capacity`: Story points per sprint (default: 20)
+- `rate_limiting.max_calls_per_hour`: API call limit (default: 100)
+
+## Exit Codes
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | General error |
+| 10 | Circuit breaker opened |
+| 20 | Project complete |
+| 21 | Max sprints reached |
+
+## Development Guidelines
+1. **Use jq for JSON** - All data manipulation uses jq
+2. **Source dependencies** - Always source utils.sh first
+3. **Atomic writes** - Use temp files + mv for JSON updates
+4. **Status block required** - All agent responses need SPRINTY_STATUS
+5. **Copy patterns** - Follow ralph-cursor-agent patterns
 
 ## Key Learnings
-- Update this section when you learn new build optimizations
-- Document any gotchas or special setup requirements
-- Keep track of the fastest test/build cycle
+- Cross-platform date handling requires checking `uname` for BSD vs GNU
+- Circuit breaker prevents infinite loops when agent makes no progress
+- Rate limiter uses hourly windows with automatic reset
+- Backlog manager validates status transitions
+- Sprint manager tracks phase-specific loop counts
 
 ## Feature Development Quality Standards
 
-**CRITICAL**: All new features MUST meet the following mandatory requirements before being considered complete.
-
 ### Testing Requirements
+- Syntax validation: `bash -n lib/module.sh`
+- Functional tests: Use bats framework
+- Integration tests: Test module combinations
 
-- **Minimum Coverage**: 85% code coverage ratio required for all new code
-- **Test Pass Rate**: 100% - all tests must pass, no exceptions
-- **Test Types Required**:
-  - Unit tests for all business logic and services
-  - Integration tests for API endpoints or main functionality
-  - End-to-end tests for critical user workflows
-- **Coverage Validation**: Run coverage reports before marking features complete:
-  ```bash
-  # Examples by language/framework
-  npm run test:coverage
-  pytest --cov=src tests/ --cov-report=term-missing
-  cargo tarpaulin --out Html
-  ```
-- **Test Quality**: Tests must validate behavior, not just achieve coverage metrics
-- **Test Documentation**: Complex test scenarios must include comments explaining the test strategy
+### Git Workflow
+- Commit after completing each module
+- Use conventional commits: `feat:`, `fix:`, `docs:`
+- Update @fix_plan.md with progress
 
-### Git Workflow Requirements
-
-Before moving to the next feature, ALL changes must be:
-
-1. **Committed with Clear Messages**:
-   ```bash
-   git add .
-   git commit -m "feat(module): descriptive message following conventional commits"
-   ```
-   - Use conventional commit format: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, etc.
-   - Include scope when applicable: `feat(api):`, `fix(ui):`, `test(auth):`
-   - Write descriptive messages that explain WHAT changed and WHY
-
-2. **Pushed to Remote Repository**:
-   ```bash
-   git push origin <branch-name>
-   ```
-   - Never leave completed features uncommitted
-   - Push regularly to maintain backup and enable collaboration
-   - Ensure CI/CD pipelines pass before considering feature complete
-
-3. **Branch Hygiene**:
-   - Work on feature branches, never directly on `main`
-   - Branch naming convention: `feature/<feature-name>`, `fix/<issue-name>`, `docs/<doc-update>`
-   - Create pull requests for all significant changes
-
-4. **Ralph Integration**:
-   - Update @fix_plan.md with new tasks before starting work
-   - Mark items complete in @fix_plan.md upon completion
-   - Update PROMPT.md if development patterns change
-   - Test features work within Ralph's autonomous loop
-
-### Documentation Requirements
-
-**ALL implementation documentation MUST remain synchronized with the codebase**:
-
-1. **Code Documentation**:
-   - Language-appropriate documentation (JSDoc, docstrings, etc.)
-   - Update inline comments when implementation changes
-   - Remove outdated comments immediately
-
-2. **Implementation Documentation**:
-   - Update relevant sections in this AGENT.md file
-   - Keep build and test commands current
-   - Update configuration examples when defaults change
-   - Document breaking changes prominently
-
-3. **README Updates**:
-   - Keep feature lists current
-   - Update setup instructions when dependencies change
-   - Maintain accurate command examples
-   - Update version compatibility information
-
-4. **AGENT.md Maintenance**:
-   - Add new build patterns to relevant sections
-   - Update "Key Learnings" with new insights
-   - Keep command examples accurate and tested
-   - Document new testing patterns or quality gates
-
-### Feature Completion Checklist
-
-Before marking ANY feature as complete, verify:
-
-- [ ] All tests pass with appropriate framework command
-- [ ] Code coverage meets 85% minimum threshold
-- [ ] Coverage report reviewed for meaningful test quality
-- [ ] Code formatted according to project standards
-- [ ] Type checking passes (if applicable)
-- [ ] All changes committed with conventional commit messages
-- [ ] All commits pushed to remote repository
-- [ ] @fix_plan.md task marked as complete
-- [ ] Implementation documentation updated
-- [ ] Inline code comments updated or added
-- [ ] AGENT.md updated (if new patterns introduced)
-- [ ] Breaking changes documented
-- [ ] Features tested within Ralph loop (if applicable)
-- [ ] CI/CD pipeline passes
-
-### Rationale
-
-These standards ensure:
-- **Quality**: High test coverage and pass rates prevent regressions
-- **Traceability**: Git commits and @fix_plan.md provide clear history of changes
-- **Maintainability**: Current documentation reduces onboarding time and prevents knowledge loss
-- **Collaboration**: Pushed changes enable team visibility and code review
-- **Reliability**: Consistent quality gates maintain production stability
-- **Automation**: Ralph integration ensures continuous development practices
-
-**Enforcement**: AI agents should automatically apply these standards to all feature development tasks without requiring explicit instruction for each task.
+## Next Steps
+1. Create `lib/agent_adapter.sh` for cursor-agent integration
+2. Create agent prompts in `prompts/`
+3. Create main orchestrator `sprinty.sh`
+4. Add unit tests
