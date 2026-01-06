@@ -27,6 +27,9 @@ set -e
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Set prompts directory relative to script location (important for installed version)
+export PROMPTS_DIR="$SCRIPT_DIR/prompts"
+
 # Source library modules
 source "$SCRIPT_DIR/lib/utils.sh"
 source "$SCRIPT_DIR/lib/circuit_breaker.sh"
