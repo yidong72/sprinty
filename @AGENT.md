@@ -6,7 +6,7 @@ Sprinty is a sprint-based software development orchestrator that uses cursor-age
 ## Project Structure
 ```
 sprinty/
-├── sprinty.sh                 # Main orchestrator (TODO)
+├── sprinty.sh                 # ✅ Main orchestrator (entry point)
 ├── lib/
 │   ├── utils.sh               # ✅ Logging, date functions
 │   ├── circuit_breaker.sh     # ✅ Halt on repeated failures
@@ -14,8 +14,8 @@ sprinty/
 │   ├── backlog_manager.sh     # ✅ Backlog CRUD operations
 │   ├── sprint_manager.sh      # ✅ Sprint state management
 │   ├── agent_adapter.sh       # ✅ cursor-agent integration
-│   ├── metrics_collector.sh   # TODO: Burndown, velocity
-│   └── done_detector.sh       # TODO: Completion detection
+│   ├── done_detector.sh       # ✅ Completion detection
+│   └── metrics_collector.sh   # TODO: Burndown, velocity
 ├── prompts/
 │   ├── product_owner.md       # ✅ PO agent prompt
 │   ├── developer.md           # ✅ Developer agent prompt
@@ -31,10 +31,37 @@ sprinty/
 - **cursor-agent** - AI agent CLI (for orchestration)
 - **bats** - Testing framework (optional, for tests)
 
+## Running Sprinty
+```bash
+# Initialize a new project
+./sprinty.sh init my-project --prd docs/PRD.md
+
+# Run sprint loop
+./sprinty.sh run
+
+# Check status
+./sprinty.sh status
+./sprinty.sh status --check-done
+
+# Backlog management
+./sprinty.sh backlog list
+./sprinty.sh backlog add "Implement feature" --type feature --points 5
+
+# Show metrics
+./sprinty.sh metrics
+
+# Reset circuit breaker (if halted)
+./sprinty.sh --reset-circuit
+
+# Show help
+./sprinty.sh --help
+```
+
 ## Running Tests
 ```bash
 # Syntax check all modules
 for f in lib/*.sh; do bash -n "$f" && echo "$f OK"; done
+for f in sprinty.sh; do bash -n "$f" && echo "$f OK"; done
 
 # Run unit tests (when available)
 bats tests/unit/
@@ -49,6 +76,20 @@ list_backlog
 ```
 
 ## Key Modules
+
+### sprinty.sh (Main Orchestrator)
+Entry point for Sprinty. Orchestrates the entire sprint workflow.
+```bash
+# CLI Commands
+./sprinty.sh init <project> --prd <file>   # Initialize project
+./sprinty.sh run                           # Run sprint loop
+./sprinty.sh status [--check-done]         # Show status
+./sprinty.sh backlog list                  # List backlog items
+./sprinty.sh backlog add <title> [opts]    # Add backlog item
+./sprinty.sh metrics                       # Show metrics
+./sprinty.sh --reset-circuit               # Reset circuit breaker
+./sprinty.sh --help                        # Show help
+```
 
 ### lib/utils.sh
 Core utilities: logging, date functions, JSON helpers.
@@ -121,6 +162,33 @@ output=$(get_last_agent_output)
 status_json=$(parse_sprinty_status_to_json "$output")
 ```
 
+### lib/done_detector.sh
+Completion detection and graceful exit logic.
+```bash
+source lib/utils.sh
+source lib/backlog_manager.sh
+source lib/done_detector.sh
+init_exit_signals
+
+# Check if project should exit gracefully
+exit_reason=$(should_exit_gracefully)
+if [[ -n "$exit_reason" ]]; then
+    echo "Ready to exit: $exit_reason"
+fi
+
+# Check project completion criteria
+if is_project_complete; then
+    echo "Project is complete!"
+fi
+
+# Record signals from agent execution
+record_done_signal 5 "agent_response"
+analyze_output_for_completion "$output_file" 5
+
+# Show exit detection status
+show_exit_status
+```
+
 ## Configuration
 Default configuration is in `templates/config.json`. Copy to `.sprinty/config.json` for project-specific settings.
 
@@ -151,6 +219,9 @@ Key settings:
 - Rate limiter uses hourly windows with automatic reset
 - Backlog manager validates status transitions
 - Sprint manager tracks phase-specific loop counts
+- Done detector tracks multiple signals for graceful exit (idle loops, done signals, completion indicators)
+- Exit conditions only trigger if no remaining work in @fix_plan.md
+- Rework loop allows up to 3 implementation→QA cycles per sprint
 
 ## Feature Development Quality Standards
 
@@ -167,7 +238,8 @@ Key settings:
 ## Next Steps
 1. ~~Create `lib/agent_adapter.sh` for cursor-agent integration~~ ✅
 2. ~~Create agent prompts in `prompts/`~~ ✅
-3. Create `lib/done_detector.sh` for completion detection
-4. Create main orchestrator `sprinty.sh`
+3. ~~Create `lib/done_detector.sh` for completion detection~~ ✅
+4. ~~Create main orchestrator `sprinty.sh`~~ ✅
 5. Create `lib/metrics_collector.sh` for sprint metrics
-6. Add unit tests
+6. Add unit tests (bats)
+7. Create README.md documentation

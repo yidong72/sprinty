@@ -38,16 +38,24 @@
   - [x] Create bug tasks for issues
 
 ## Medium Priority (Phase 3: Orchestration)
-- [ ] Create `lib/done_detector.sh` - Completion detection logic
-- [ ] Create `sprinty.sh` - Main orchestrator:
-  - [ ] `main()` - Main loop with sprint phases
-  - [ ] `init_sprinty()` - Initialize project
-  - [ ] `execute_phase()` - Run agent for a phase
-  - [ ] Implement rework loop (max 3 cycles)
-  - [ ] Handle exit codes (0, 1, 10, 20, 21)
-- [ ] Create `.sprinty/` directory structure:
-  - [ ] `config.json` - Project configuration
-  - [ ] `sprint_state.json` - Current sprint state
+- [x] Create `lib/done_detector.sh` - Completion detection logic
+  - [x] Exit signal tracking (idle loops, done signals, completion indicators)
+  - [x] `should_exit_gracefully()` - Check for graceful exit conditions
+  - [x] `is_project_complete()` - Check project completion criteria
+  - [x] `check_backlog_completion()` / `check_fix_plan_completion()`
+  - [x] `analyze_output_for_completion()` - Parse agent responses
+- [x] Create `sprinty.sh` - Main orchestrator:
+  - [x] `main()` - Main loop with sprint phases
+  - [x] `init_sprinty()` - Initialize project
+  - [x] `execute_phase()` - Run agent for a phase
+  - [x] `execute_sprint()` - Run full sprint with rework loop
+  - [x] `execute_sprint_zero()` - Initialization sprint
+  - [x] Implement rework loop (max 3 cycles)
+  - [x] Handle exit codes (0, 1, 10, 20, 21)
+  - [x] CLI commands: init, run, status, backlog, metrics
+- [x] Create `.sprinty/` directory structure:
+  - [x] `config.json` - Project configuration (via init_sprinty)
+  - [x] `sprint_state.json` - Current sprint state (via init_sprint_state)
 
 ## Medium Priority (Phase 4: Metrics)
 - [ ] Create `lib/metrics_collector.sh`:
@@ -59,19 +67,22 @@
   - [ ] `sprinty metrics` - Show burndown/velocity
 
 ## Low Priority (Phase 5: Polish)
-- [ ] Add CLI commands to `sprinty.sh`:
-  - [ ] `sprinty init <project> --prd <file>` - Initialize project
-  - [ ] `sprinty run` - Run sprint loop
-  - [ ] `sprinty status [--check-done]` - Show status
-  - [ ] `sprinty backlog list` - List backlog items
-  - [ ] `sprinty backlog add` - Add backlog item
+- [x] Add CLI commands to `sprinty.sh`:
+  - [x] `sprinty init <project> --prd <file>` - Initialize project
+  - [x] `sprinty run` - Run sprint loop
+  - [x] `sprinty status [--check-done]` - Show status
+  - [x] `sprinty backlog list` - List backlog items
+  - [x] `sprinty backlog add` - Add backlog item
+  - [x] `sprinty metrics` - Show sprint metrics
+  - [x] `sprinty --reset-circuit` - Reset circuit breaker
+  - [x] `sprinty --reset-rate-limit` - Reset rate limiter
 - [ ] Create unit tests in `tests/unit/`:
   - [ ] `test_backlog_manager.bats`
   - [ ] `test_sprint_manager.bats`
   - [ ] `test_agent_adapter.bats`
   - [ ] `test_circuit_breaker.bats`
 - [ ] Create `README.md` with usage documentation
-- [ ] Create `@AGENT.md` with build/test instructions
+- [x] Update `@AGENT.md` with build/test instructions
 
 ## Completed
 - [x] Project directory structure created
@@ -81,6 +92,8 @@
 - [x] Phase 1 Foundation - All lib modules created (utils, circuit_breaker, rate_limiter, backlog_manager, sprint_manager)
 - [x] templates/config.json with default configuration
 - [x] Phase 2 Agent Integration - agent_adapter.sh and all role prompts created
+- [x] Phase 3 Orchestration - sprinty.sh main orchestrator and done_detector.sh
+- [x] CLI commands implemented (init, run, status, backlog, metrics)
 
 ## Notes
 - **Copy patterns from `../ralph-cursor-agent/`** - Don't reinvent
