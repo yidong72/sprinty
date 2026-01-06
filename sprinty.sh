@@ -635,6 +635,7 @@ Options:
     -h, --help              Show this help message
     -v, --version           Show version
     --model <model>         Set AI model (default: opus-4.5-thinking)
+    --monitor, -m           Launch in tmux dashboard (use with 'run')
     --reset-circuit         Reset circuit breaker
     --reset-rate-limit      Reset rate limiter
     --calls <num>           Set max calls per hour
@@ -646,10 +647,16 @@ Available Models:
 Examples:
     sprinty init my-project --prd docs/PRD.md
     sprinty run
-    sprinty --model sonnet-4.5 run
+    sprinty --monitor run                    # Launch with tmux dashboard
+    sprinty --model sonnet-4.5 --monitor run # With custom model
     sprinty status --check-done
     sprinty backlog list
     sprinty backlog add "Implement login" --type feature --points 5
+
+Environment Variables:
+    CURSOR_MODEL                AI model to use
+    MAX_CALLS_PER_HOUR          Rate limit (default: 100)
+    SPRINTY_MONITOR_REFRESH     Monitor refresh interval in seconds (default: 5)
 
 Exit Codes:
     0   - Success
@@ -717,11 +724,98 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 # ============================================================================
+# MONITOR MODE (TMUX DASHBOARD)
+# ============================================================================
+
+# Launch sprinty in tmux monitor mode with 3 panes
+launch_monitor() {
+    local session_name="sprinty-monitor"
+    local refresh_interval=${SPRINTY_MONITOR_REFRESH:-5}
+    
+    # Check if tmux is installed
+    if ! command -v tmux &> /dev/null; then
+        echo -e "${RED}Error: tmux is required for monitor mode${NC}"
+        echo ""
+        echo "Install tmux:"
+        echo "  Ubuntu/Debian: sudo apt install tmux"
+        echo "  macOS:         brew install tmux"
+        echo "  Fedora:        sudo dnf install tmux"
+        exit 1
+    fi
+    
+    # Kill existing session if it exists
+    tmux kill-session -t "$session_name" 2>/dev/null || true
+    
+    # Get the sprinty command path
+    local sprinty_cmd
+    sprinty_cmd="$(realpath "${BASH_SOURCE[0]}")"
+    
+    # Build the run command with any passed options
+    local run_cmd="$sprinty_cmd"
+    [[ -n "${CURSOR_MODEL:-}" ]] && run_cmd="$run_cmd --model $CURSOR_MODEL"
+    [[ -n "${MAX_CALLS_PER_HOUR:-}" ]] && run_cmd="$run_cmd --calls $MAX_CALLS_PER_HOUR"
+    run_cmd="$run_cmd run"
+    
+    # Create new tmux session with the run pane (main, left side)
+    tmux new-session -d -s "$session_name" -n "sprinty" "$run_cmd; echo ''; echo 'Press Enter to close...'; read"
+    
+    # Split horizontally (creates right pane)
+    tmux split-window -h -t "$session_name:0"
+    
+    # In right pane, split vertically (creates bottom-right pane)
+    tmux split-window -v -t "$session_name:0.1"
+    
+    # Set up status pane (top-right) with watch
+    tmux send-keys -t "$session_name:0.1" "watch -n $refresh_interval -c '$sprinty_cmd status'" C-m
+    
+    # Set up metrics pane (bottom-right) with watch
+    tmux send-keys -t "$session_name:0.2" "watch -n $refresh_interval -c '$sprinty_cmd metrics'" C-m
+    
+    # Adjust pane sizes (left pane 60%, right panes 40%)
+    tmux select-pane -t "$session_name:0.0"
+    tmux resize-pane -t "$session_name:0.0" -x 60%
+    
+    # Set pane titles (if supported)
+    tmux select-pane -t "$session_name:0.0" -T "🚀 Sprint Runner"
+    tmux select-pane -t "$session_name:0.1" -T "📊 Status"
+    tmux select-pane -t "$session_name:0.2" -T "📈 Metrics"
+    
+    # Enable mouse mode for easy pane switching
+    tmux set-option -t "$session_name" mouse on
+    
+    # Select the run pane
+    tmux select-pane -t "$session_name:0.0"
+    
+    echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║           Sprinty Monitor Launched! 🚀                     ║${NC}"
+    echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo "Session: $session_name"
+    echo ""
+    echo "Layout:"
+    echo "  ┌─────────────────┬─────────────┐"
+    echo "  │                 │   Status    │"
+    echo "  │  Sprint Runner  ├─────────────┤"
+    echo "  │                 │   Metrics   │"
+    echo "  └─────────────────┴─────────────┘"
+    echo ""
+    echo "Commands:"
+    echo "  Attach:  tmux attach -t $session_name"
+    echo "  Detach:  Ctrl+B, then D"
+    echo "  Kill:    tmux kill-session -t $session_name"
+    echo ""
+    
+    # Attach to the session
+    tmux attach -t "$session_name"
+}
+
+# ============================================================================
 # MAIN ENTRY POINT
 # ============================================================================
 
 main() {
     # Parse global options first
+    local monitor_mode=false
     while [[ $# -gt 0 ]]; do
         case $1 in
             --model)
@@ -731,6 +825,10 @@ main() {
             --calls)
                 export MAX_CALLS_PER_HOUR="$2"
                 shift 2
+                ;;
+            --monitor|-m)
+                monitor_mode=true
+                shift
                 ;;
             *)
                 break
@@ -762,7 +860,11 @@ main() {
             init_sprinty "$project_name" "$prd_file"
             ;;
         run)
-            run_sprinty
+            if [[ "$monitor_mode" == "true" ]]; then
+                launch_monitor
+            else
+                run_sprinty
+            fi
             ;;
         status)
             local check_done=false
