@@ -350,6 +350,8 @@ execute_sprint() {
     
     local rework_count=0
     local max_rework=$(get_sprint_state "max_rework_cycles" 2>/dev/null || echo "$DEFAULT_MAX_REWORK_CYCLES")
+    # Handle jq returning "null" string when field doesn't exist
+    [[ "$max_rework" == "null" || -z "$max_rework" ]] && max_rework="$DEFAULT_MAX_REWORK_CYCLES"
     max_rework=${max_rework:-3}
     
     # Planning phase

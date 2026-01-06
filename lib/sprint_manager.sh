@@ -76,7 +76,9 @@ get_sprint_state() {
         init_sprint_state
     fi
     
-    jq -r ".$field" "$SPRINT_STATE_FILE" 2>/dev/null
+    local value
+    value=$(jq -r ".$field // empty" "$SPRINT_STATE_FILE" 2>/dev/null)
+    echo "$value"
 }
 
 # Get current sprint number
