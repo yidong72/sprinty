@@ -173,40 +173,35 @@ teardown() {
     [[ $result -eq 0 ]]
 }
 
-@test "analyze_output_for_completion detects completion keywords" {
-    init_exit_signals
-    echo "🎉 Project complete!" > "output.log"
-    
-    result=$(analyze_output_for_completion "output.log" 1)
-    
-    [[ $result -ge 1 ]]
-}
-
-@test "analyze_output_for_completion detects TASKS_REMAINING: 0 only when backlog complete" {
+@test "analyze_output_for_completion ignores completion keywords (unreliable)" {
     init_exit_signals
     init_backlog "test"
     add_backlog_item "Task 1" "feature" 1 5
     update_item_status "TASK-001" "done"
     
-    echo "TASKS_REMAINING: 0" > "output.log"
+    # Even with "project complete" text and completed backlog,
+    # we don't trust keyword matching - too many false positives
+    echo "🎉 Project complete! All tasks done!" > "output.log"
     
     result=$(analyze_output_for_completion "output.log" 1)
     
-    # Should detect because backlog is actually complete
-    [[ $result -ge 1 ]]
+    # Should NOT detect any signals from keywords alone
+    [[ $result -eq 0 ]]
 }
 
-@test "analyze_output_for_completion ignores TASKS_REMAINING: 0 when backlog incomplete" {
+@test "analyze_output_for_completion ignores TASKS_REMAINING from agent output" {
     init_exit_signals
     init_backlog "test"
     add_backlog_item "Task 1" "feature" 1 5
-    # Task still in backlog status, not done
+    update_item_status "TASK-001" "done"
     
+    # Agent saying TASKS_REMAINING: 0 could mean current sprint, not whole project
+    # We rely on actual backlog state instead
     echo "TASKS_REMAINING: 0" > "output.log"
     
     result=$(analyze_output_for_completion "output.log" 1)
     
-    # Should NOT detect because backlog is not complete
+    # Should NOT detect - we don't trust agent's task count
     [[ $result -eq 0 ]]
 }
 

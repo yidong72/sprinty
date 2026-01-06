@@ -296,15 +296,16 @@ EOF
 # OUTPUT ANALYSIS INTEGRATION
 # ============================================================================
 
-@test "integration: analyze_output_for_completion detects all patterns" {
+@test "integration: analyze_output_for_completion detects PROJECT_DONE only" {
     init_exit_signals
     init_backlog "pattern-test"
     
-    # Add a task and mark it done so TASKS_REMAINING: 0 can be detected
     add_backlog_item "Task 1" "feature" 1 5
     update_item_status "TASK-001" "done"
     
-    # Create output with multiple patterns
+    # Create output with PROJECT_DONE signal
+    # Note: We intentionally ignore completion keywords and TASKS_REMAINING
+    # because they cause false positives (sprint vs project completion)
     cat > "multi_pattern.log" << 'EOF'
 Working on implementation...
 
@@ -318,16 +319,17 @@ EOF
     
     result=$(analyze_output_for_completion "multi_pattern.log" 1)
     
-    # Should detect: PROJECT_DONE (done_signal), completion_keywords (indicator), TASKS_REMAINING:0 (indicator if backlog complete)
-    [[ $result -ge 2 ]]
+    # Should detect only PROJECT_DONE (done_signal)
+    # Keywords and TASKS_REMAINING are intentionally ignored as unreliable
+    [[ $result -eq 1 ]]
     
-    # Check signals were recorded
+    # Check only done_signal was recorded (not completion_indicators)
     local done_count=$(jq '.done_signals | length' "$EXIT_SIGNALS_FILE")
     local indicator_count=$(jq '.completion_indicators | length' "$EXIT_SIGNALS_FILE")
     
-    [[ $done_count -ge 1 ]]
-    # completion_keywords and TASKS_REMAINING:0 should both be detected
-    [[ $indicator_count -ge 2 ]]
+    [[ $done_count -eq 1 ]]
+    # No completion_indicators should be recorded (we removed keyword detection)
+    [[ $indicator_count -eq 0 ]]
 }
 
 @test "integration: reset signals allows fresh detection" {

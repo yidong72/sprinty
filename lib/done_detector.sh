@@ -174,24 +174,13 @@ analyze_output_for_completion() {
     
     # NOTE: PHASE_COMPLETE: true is NOT a completion indicator!
     # It's a normal phase transition signal that happens after every phase.
-    # We only track PROJECT_DONE and actual completion keywords.
     
-    # Check for completion keywords (case-insensitive)
-    if grep -qiE "(project.*complete|all.*tasks.*done|all.*items.*completed|nothing.*left.*to.*implement|🎉.*done|✅.*project.*complete)" "$output_file" 2>/dev/null; then
-        record_completion_indicator "$loop_number" "completion_keywords"
-        signals_found=$((signals_found + 1))
-    fi
-    
-    # Check for TASKS_REMAINING: 0
-    # BUT verify against actual backlog to avoid false positives
-    # (agent might report 0 for current sprint, not entire project)
-    if grep -q "TASKS_REMAINING:.*0" "$output_file" 2>/dev/null; then
-        # Double-check: only count if backlog is actually complete
-        if check_backlog_completion 2>/dev/null; then
-            record_completion_indicator "$loop_number" "no_tasks_remaining"
-            signals_found=$((signals_found + 1))
-        fi
-    fi
+    # NOTE: We intentionally DO NOT check for "completion keywords" from agent output.
+    # Keyword matching is unreliable and causes false positives (e.g., "Sprint 1 complete"
+    # being interpreted as "project complete"). Instead, we rely on:
+    # 1. Actual backlog state (check_backlog_completion) - most reliable
+    # 2. Explicit PROJECT_DONE: true signal from agent
+    # 3. Idle loop detection (no progress being made)
     
     # Detect test-only loop patterns
     if grep -qiE "(only.*test|ran.*tests|test.*pass|all.*tests.*passing)" "$output_file" 2>/dev/null; then
