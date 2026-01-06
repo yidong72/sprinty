@@ -1,0 +1,473 @@
+#!/usr/bin/env bash
+# ============================================================================
+# Sprinty Installation Script
+# ============================================================================
+#
+# Usage:
+#   ./install.sh              Install to ~/.local/bin (user install)
+#   ./install.sh --global     Install to /usr/local/bin (requires sudo)
+#   ./install.sh --uninstall  Remove sprinty installation
+#   ./install.sh --dev        Development install (symlinks)
+#
+# ============================================================================
+
+set -e
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Script directory (where sprinty is located)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Default installation paths
+USER_BIN_DIR="$HOME/.local/bin"
+USER_LIB_DIR="$HOME/.local/lib/sprinty"
+GLOBAL_BIN_DIR="/usr/local/bin"
+GLOBAL_LIB_DIR="/usr/local/lib/sprinty"
+
+# Installation mode
+INSTALL_MODE="user"
+UNINSTALL=false
+DEV_MODE=false
+
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
+
+print_banner() {
+    echo -e "${BLUE}"
+    echo "╔════════════════════════════════════════════════════════════╗"
+    echo "║              Sprinty Installation Script                   ║"
+    echo "╚════════════════════════════════════════════════════════════╝"
+    echo -e "${NC}"
+}
+
+print_step() {
+    echo -e "${CYAN}➜${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}✓${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}⚠${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}✗${NC} $1"
+}
+
+# ============================================================================
+# DEPENDENCY CHECKS
+# ============================================================================
+
+check_bash_version() {
+    local bash_major="${BASH_VERSION%%.*}"
+    if [[ $bash_major -lt 4 ]]; then
+        print_error "Bash 4.0 or higher is required (current: $BASH_VERSION)"
+        echo ""
+        echo "Install instructions:"
+        echo "  macOS:  brew install bash"
+        echo "  Ubuntu: sudo apt-get install bash"
+        return 1
+    fi
+    print_success "Bash version: $BASH_VERSION"
+    return 0
+}
+
+check_jq() {
+    if ! command -v jq &> /dev/null; then
+        print_error "jq is required but not installed"
+        echo ""
+        echo "Install instructions:"
+        echo "  macOS:       brew install jq"
+        echo "  Ubuntu:      sudo apt-get install jq"
+        echo "  Fedora:      sudo dnf install jq"
+        echo "  Arch Linux:  sudo pacman -S jq"
+        return 1
+    fi
+    local jq_version=$(jq --version 2>/dev/null || echo "unknown")
+    print_success "jq installed: $jq_version"
+    return 0
+}
+
+check_git() {
+    if ! command -v git &> /dev/null; then
+        print_warning "git is recommended but not installed"
+        return 0
+    fi
+    print_success "git installed: $(git --version)"
+    return 0
+}
+
+check_cursor_agent() {
+    if command -v cursor-agent &> /dev/null; then
+        print_success "cursor-agent installed: $(cursor-agent --version 2>/dev/null || echo 'detected')"
+    else
+        print_warning "cursor-agent not installed (required for running sprinty)"
+        echo ""
+        echo "  Install with: curl https://cursor.com/install -fsS | bash"
+    fi
+}
+
+check_dependencies() {
+    print_step "Checking dependencies..."
+    echo ""
+    
+    local deps_ok=true
+    
+    check_bash_version || deps_ok=false
+    check_jq || deps_ok=false
+    check_git
+    check_cursor_agent
+    
+    echo ""
+    
+    if [[ "$deps_ok" == "false" ]]; then
+        print_error "Required dependencies missing. Please install them and retry."
+        return 1
+    fi
+    
+    print_success "All required dependencies satisfied"
+    return 0
+}
+
+# ============================================================================
+# INSTALLATION FUNCTIONS
+# ============================================================================
+
+install_user() {
+    local bin_dir="$USER_BIN_DIR"
+    local lib_dir="$USER_LIB_DIR"
+    
+    print_step "Installing to user directory..."
+    echo "  Binary: $bin_dir/sprinty"
+    echo "  Library: $lib_dir/"
+    echo ""
+    
+    # Create directories
+    mkdir -p "$bin_dir"
+    mkdir -p "$lib_dir"
+    
+    # Copy library files
+    cp -r "$SCRIPT_DIR/lib" "$lib_dir/"
+    cp -r "$SCRIPT_DIR/templates" "$lib_dir/"
+    cp -r "$SCRIPT_DIR/prompts" "$lib_dir/"
+    cp "$SCRIPT_DIR/sprinty.sh" "$lib_dir/"
+    
+    # Make scripts executable
+    chmod +x "$lib_dir/sprinty.sh"
+    chmod +x "$lib_dir/lib/"*.sh
+    
+    # Create wrapper script
+    cat > "$bin_dir/sprinty" << WRAPPER
+#!/usr/bin/env bash
+# Sprinty wrapper script - Auto-generated by install.sh
+exec "$lib_dir/sprinty.sh" "\$@"
+WRAPPER
+    chmod +x "$bin_dir/sprinty"
+    
+    print_success "Installation complete!"
+    
+    # Check if bin_dir is in PATH
+    if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
+        print_warning "$bin_dir is not in your PATH"
+        echo ""
+        echo "  Add this to your ~/.bashrc or ~/.zshrc:"
+        echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
+        echo ""
+        echo "  Then run: source ~/.bashrc  (or ~/.zshrc)"
+    fi
+}
+
+install_global() {
+    local bin_dir="$GLOBAL_BIN_DIR"
+    local lib_dir="$GLOBAL_LIB_DIR"
+    
+    print_step "Installing globally (requires sudo)..."
+    echo "  Binary: $bin_dir/sprinty"
+    echo "  Library: $lib_dir/"
+    echo ""
+    
+    # Create directories
+    sudo mkdir -p "$lib_dir"
+    
+    # Copy library files
+    sudo cp -r "$SCRIPT_DIR/lib" "$lib_dir/"
+    sudo cp -r "$SCRIPT_DIR/templates" "$lib_dir/"
+    sudo cp -r "$SCRIPT_DIR/prompts" "$lib_dir/"
+    sudo cp "$SCRIPT_DIR/sprinty.sh" "$lib_dir/"
+    
+    # Make scripts executable
+    sudo chmod +x "$lib_dir/sprinty.sh"
+    sudo chmod +x "$lib_dir/lib/"*.sh
+    
+    # Create wrapper script
+    sudo tee "$bin_dir/sprinty" > /dev/null << WRAPPER
+#!/usr/bin/env bash
+# Sprinty wrapper script - Auto-generated by install.sh
+exec "$lib_dir/sprinty.sh" "\$@"
+WRAPPER
+    sudo chmod +x "$bin_dir/sprinty"
+    
+    print_success "Global installation complete!"
+}
+
+install_dev() {
+    local bin_dir="$USER_BIN_DIR"
+    
+    print_step "Installing in development mode (symlinks)..."
+    echo "  Symlink: $bin_dir/sprinty -> $SCRIPT_DIR/sprinty.sh"
+    echo ""
+    
+    # Create bin directory
+    mkdir -p "$bin_dir"
+    
+    # Make scripts executable
+    chmod +x "$SCRIPT_DIR/sprinty.sh"
+    chmod +x "$SCRIPT_DIR/lib/"*.sh
+    
+    # Create symlink
+    ln -sf "$SCRIPT_DIR/sprinty.sh" "$bin_dir/sprinty"
+    
+    print_success "Development installation complete!"
+    echo ""
+    echo "  Changes to the source will be reflected immediately."
+    
+    # Check if bin_dir is in PATH
+    if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
+        print_warning "$bin_dir is not in your PATH"
+        echo ""
+        echo "  Add this to your ~/.bashrc or ~/.zshrc:"
+        echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
+    fi
+}
+
+# ============================================================================
+# UNINSTALLATION
+# ============================================================================
+
+uninstall() {
+    print_step "Uninstalling Sprinty..."
+    echo ""
+    
+    local removed=false
+    
+    # Remove user installation
+    if [[ -f "$USER_BIN_DIR/sprinty" ]]; then
+        rm -f "$USER_BIN_DIR/sprinty"
+        print_success "Removed $USER_BIN_DIR/sprinty"
+        removed=true
+    fi
+    
+    if [[ -d "$USER_LIB_DIR" ]]; then
+        rm -rf "$USER_LIB_DIR"
+        print_success "Removed $USER_LIB_DIR"
+        removed=true
+    fi
+    
+    # Remove global installation
+    if [[ -f "$GLOBAL_BIN_DIR/sprinty" ]]; then
+        sudo rm -f "$GLOBAL_BIN_DIR/sprinty"
+        print_success "Removed $GLOBAL_BIN_DIR/sprinty"
+        removed=true
+    fi
+    
+    if [[ -d "$GLOBAL_LIB_DIR" ]]; then
+        sudo rm -rf "$GLOBAL_LIB_DIR"
+        print_success "Removed $GLOBAL_LIB_DIR"
+        removed=true
+    fi
+    
+    if [[ "$removed" == "false" ]]; then
+        print_warning "No Sprinty installation found"
+    else
+        print_success "Uninstallation complete!"
+    fi
+}
+
+# ============================================================================
+# TEST DEPENDENCIES
+# ============================================================================
+
+install_test_deps() {
+    print_step "Installing test dependencies..."
+    echo ""
+    
+    # Check if npm is available
+    if command -v npm &> /dev/null; then
+        print_step "Installing bats via npm..."
+        cd "$SCRIPT_DIR"
+        npm install
+        print_success "Test dependencies installed via npm"
+    else
+        print_warning "npm not found. To run tests, install Node.js/npm or bats manually:"
+        echo ""
+        echo "  npm:   npm install  (in the sprinty directory)"
+        echo "  brew:  brew install bats-core"
+        echo "  apt:   sudo apt-get install bats"
+    fi
+}
+
+run_tests() {
+    print_step "Running tests..."
+    echo ""
+    
+    cd "$SCRIPT_DIR"
+    
+    if [[ -f "node_modules/.bin/bats" ]]; then
+        ./node_modules/.bin/bats tests/unit/*.bats tests/integration/*.bats
+    elif command -v bats &> /dev/null; then
+        bats tests/unit/*.bats tests/integration/*.bats
+    else
+        print_error "bats not found. Run: ./install.sh --test-deps"
+        return 1
+    fi
+}
+
+# ============================================================================
+# HELP
+# ============================================================================
+
+show_help() {
+    cat << 'EOF'
+Sprinty Installation Script
+
+Usage:
+    ./install.sh [OPTIONS]
+
+Options:
+    (no options)      Install to ~/.local/bin (user install)
+    --global, -g      Install to /usr/local/bin (requires sudo)
+    --dev, -d         Development install (creates symlink)
+    --uninstall       Remove sprinty installation
+    --test-deps       Install test dependencies (bats)
+    --test            Run test suite
+    --check           Check dependencies only
+    --help, -h        Show this help message
+
+Examples:
+    ./install.sh                  # User install
+    ./install.sh --global         # System-wide install
+    ./install.sh --dev            # Development install
+    ./install.sh --uninstall      # Remove installation
+    ./install.sh --test           # Run tests
+
+After installation:
+    sprinty --help                # Show usage
+    sprinty init my-project       # Initialize a project
+    sprinty run                   # Start the sprint loop
+
+EOF
+}
+
+# ============================================================================
+# POST-INSTALLATION
+# ============================================================================
+
+show_post_install() {
+    echo ""
+    echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║              Installation Successful! 🎉                   ║${NC}"
+    echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo "Quick Start:"
+    echo ""
+    echo "  1. Create a new project:"
+    echo "     ${CYAN}sprinty init my-project --prd docs/PRD.md${NC}"
+    echo ""
+    echo "  2. Run the sprint loop:"
+    echo "     ${CYAN}sprinty run${NC}"
+    echo ""
+    echo "  3. Check status:"
+    echo "     ${CYAN}sprinty status${NC}"
+    echo ""
+    echo "For more information:"
+    echo "  ${CYAN}sprinty --help${NC}"
+    echo ""
+    
+    if ! command -v cursor-agent &> /dev/null; then
+        echo -e "${YELLOW}Note: Install cursor-agent before running sprinty:${NC}"
+        echo "  curl https://cursor.com/install -fsS | bash"
+        echo ""
+    fi
+}
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
+main() {
+    print_banner
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --global|-g)
+                INSTALL_MODE="global"
+                shift
+                ;;
+            --dev|-d)
+                DEV_MODE=true
+                shift
+                ;;
+            --uninstall)
+                UNINSTALL=true
+                shift
+                ;;
+            --test-deps)
+                install_test_deps
+                exit 0
+                ;;
+            --test)
+                run_tests
+                exit $?
+                ;;
+            --check)
+                check_dependencies
+                exit $?
+                ;;
+            --help|-h)
+                show_help
+                exit 0
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                echo "Run './install.sh --help' for usage"
+                exit 1
+                ;;
+        esac
+    done
+    
+    # Handle uninstall
+    if [[ "$UNINSTALL" == "true" ]]; then
+        uninstall
+        exit 0
+    fi
+    
+    # Check dependencies
+    if ! check_dependencies; then
+        exit 1
+    fi
+    
+    echo ""
+    
+    # Install
+    if [[ "$DEV_MODE" == "true" ]]; then
+        install_dev
+    elif [[ "$INSTALL_MODE" == "global" ]]; then
+        install_global
+    else
+        install_user
+    fi
+    
+    show_post_install
+}
+
+main "$@"
