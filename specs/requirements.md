@@ -318,11 +318,11 @@ parse_agent_response() {
 # Initialize project
 sprinty init my-project --prd specs/PRD.md
 
-# Run sprints with monitoring dashboard (recommended)
-sprinty --monitor run
+# Run sprints in container sandbox (RECOMMENDED)
+sprinty --container --workspace . --monitor run
 
-# Or run without monitoring
-sprinty run
+# Run without container (use with caution)
+sprinty --monitor run
 
 # Check status
 sprinty status
@@ -334,6 +334,21 @@ sprinty backlog add "Title" --type feature --points 5
 
 # Metrics
 sprinty metrics
+
+# Container cache management
+sprinty container build              # Pre-build cache (optional)
+sprinty container build python:3.12  # Custom base image
+sprinty container list               # Show cached containers
+sprinty container clear              # Clear cache to rebuild
+```
+
+### Container Mode
+
+Running in a container sandbox protects your host system. The first run builds a cached image (takes 2-3 minutes), subsequent runs start instantly.
+
+```bash
+# Cache location: ~/.local/share/sprinty/containers/
+# Pre-installed: curl, git, jq, tmux, python3, pip, build-essential
 ```
 
 ---

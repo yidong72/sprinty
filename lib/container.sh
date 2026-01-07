@@ -21,6 +21,7 @@ source "$_LIB_DIR/utils.sh"
 DEFAULT_CONTAINER_IMAGE="${SPRINTY_CONTAINER_IMAGE:-docker://ubuntu:24.04}"
 CONTAINER_WORKSPACE="/workspace"
 SPRINTY_INSTALL_PATH="/opt/sprinty"
+CONTAINER_CACHE_DIR="${SPRINTY_CONTAINER_CACHE:-$HOME/.local/share/sprinty/containers}"
 
 # ============================================================================
 # CONTAINER DETECTION
@@ -59,6 +60,106 @@ check_apptainer_installed() {
 # ============================================================================
 # CONTAINER MANAGEMENT
 # ============================================================================
+
+# Get cache filename for an image
+get_cache_filename() {
+    local image=$1
+    # Convert image name to safe filename
+    # docker://ubuntu:24.04 -> ubuntu_24.04.sif
+    local safe_name=$(echo "$image" | sed 's|docker://||; s|library://||; s|shub://||; s|[/:]|_|g')
+    echo "${safe_name}.sif"
+}
+
+# Check if cached container exists
+get_cached_container() {
+    local image=$1
+    local cache_file="$CONTAINER_CACHE_DIR/$(get_cache_filename "$image")"
+    
+    if [[ -f "$cache_file" ]]; then
+        echo "$cache_file"
+        return 0
+    fi
+    return 1
+}
+
+# Build cached container with pre-installed packages
+build_cached_container() {
+    local image=$1
+    local container_cmd=$2
+    local cache_file="$CONTAINER_CACHE_DIR/$(get_cache_filename "$image")"
+    
+    mkdir -p "$CONTAINER_CACHE_DIR"
+    
+    log_status "INFO" "Building cached container: $cache_file"
+    log_status "INFO" "This may take a few minutes (one-time setup)..."
+    
+    # Create definition file
+    local def_file=$(mktemp /tmp/sprinty-container.XXXXXX.def)
+    
+    cat > "$def_file" << DEFEOF
+Bootstrap: docker
+From: ${image#docker://}
+
+%post
+    # Set non-interactive mode
+    export DEBIAN_FRONTEND=noninteractive
+    export TZ=UTC
+    ln -snf /usr/share/zoneinfo/\$TZ /etc/localtime
+    echo \$TZ > /etc/timezone
+    
+    # Update and install packages
+    apt-get update -qq
+    apt-get install -y -qq --no-install-recommends \\
+        curl \\
+        git \\
+        jq \\
+        tmux \\
+        python3 \\
+        python3-pip \\
+        python3-venv \\
+        build-essential \\
+        ca-certificates \\
+        locales
+    
+    # Setup locale
+    locale-gen en_US.UTF-8
+    
+    # Cleanup to reduce image size
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+    
+    # Create directories
+    mkdir -p /workspace /opt/sprinty /root/.config/cursor
+
+%environment
+    export LC_ALL=en_US.UTF-8
+    export LANG=en_US.UTF-8
+    export DEBIAN_FRONTEND=noninteractive
+
+%labels
+    Author Sprinty
+    Version 1.0
+    Description Sprinty container with pre-installed packages
+DEFEOF
+    
+    # Build the container
+    "$container_cmd" build --fakeroot "$cache_file" "$def_file" 2>&1 | while read line; do
+        echo "  $line"
+    done
+    
+    local build_status=${PIPESTATUS[0]}
+    rm -f "$def_file"
+    
+    if [[ $build_status -eq 0 && -f "$cache_file" ]]; then
+        log_status "SUCCESS" "Container cached: $cache_file"
+        echo "$cache_file"
+        return 0
+    else
+        log_status "ERROR" "Failed to build cached container"
+        rm -f "$cache_file"
+        return 1
+    fi
+}
 
 # Build or pull container image
 prepare_container() {
@@ -238,9 +339,28 @@ launch_container() {
     local sprinty_args=("${@:3}")
     local container_cmd
     local sprinty_source
+    local use_image
     
     # Get container command
     container_cmd=$(prepare_container "$image") || return 1
+    
+    # Check for cached container
+    local cached_image=$(get_cached_container "$image")
+    if [[ -n "$cached_image" ]]; then
+        log_status "INFO" "Using cached container: $cached_image"
+        use_image="$cached_image"
+    else
+        log_status "INFO" "No cached container found for: $image"
+        log_status "INFO" "Building cached container (one-time setup)..."
+        
+        cached_image=$(build_cached_container "$image" "$container_cmd")
+        if [[ -n "$cached_image" && -f "$cached_image" ]]; then
+            use_image="$cached_image"
+        else
+            log_status "WARN" "Cache build failed, using image directly (slower)"
+            use_image="$image"
+        fi
+    fi
     
     # Get sprinty source directory
     sprinty_source="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -261,7 +381,7 @@ launch_container() {
     local cursor_agent_dir="${cursor_info##*|}"
     
     log_status "INFO" "Launching container..."
-    log_status "INFO" "  Image: $image"
+    log_status "INFO" "  Image: $use_image"
     log_status "INFO" "  Workspace: $workspace → $CONTAINER_WORKSPACE"
     log_status "INFO" "  Sprinty source: $sprinty_source"
     
@@ -355,7 +475,7 @@ launch_container() {
             "${bind_opts[@]}" \
             "${env_opts[@]}" \
             --pwd "$CONTAINER_WORKSPACE" \
-            "$image" \
+            "$use_image" \
             /bin/bash /tmp/setup.sh "${sprinty_args[@]}"
     else
         # Interactive shell
@@ -367,7 +487,7 @@ launch_container() {
             "${bind_opts[@]}" \
             "${env_opts[@]}" \
             --pwd "$CONTAINER_WORKSPACE" \
-            "$image" \
+            "$use_image" \
             /bin/bash /tmp/setup.sh
     fi
     
@@ -429,6 +549,71 @@ EOF
 }
 
 # ============================================================================
+# CONTAINER CACHE MANAGEMENT
+# ============================================================================
+
+# List cached containers
+list_cached_containers() {
+    if [[ ! -d "$CONTAINER_CACHE_DIR" ]]; then
+        echo "No cached containers found."
+        return 0
+    fi
+    
+    echo "Cached containers in: $CONTAINER_CACHE_DIR"
+    echo ""
+    
+    local count=0
+    for sif in "$CONTAINER_CACHE_DIR"/*.sif; do
+        if [[ -f "$sif" ]]; then
+            local size=$(du -h "$sif" | cut -f1)
+            local name=$(basename "$sif")
+            local modified=$(stat -c %y "$sif" 2>/dev/null | cut -d. -f1 || stat -f %Sm "$sif" 2>/dev/null)
+            echo "  $name ($size) - $modified"
+            ((count++))
+        fi
+    done
+    
+    if [[ $count -eq 0 ]]; then
+        echo "  (none)"
+    fi
+    echo ""
+    echo "Total: $count container(s)"
+}
+
+# Rebuild cached container
+rebuild_cached_container() {
+    local image=${1:-$DEFAULT_CONTAINER_IMAGE}
+    local container_cmd
+    
+    container_cmd=$(check_apptainer_installed) || {
+        log_status "ERROR" "Apptainer/Singularity not installed"
+        return 1
+    }
+    
+    local cache_file="$CONTAINER_CACHE_DIR/$(get_cache_filename "$image")"
+    
+    # Remove existing cache
+    if [[ -f "$cache_file" ]]; then
+        log_status "INFO" "Removing existing cache: $cache_file"
+        rm -f "$cache_file"
+    fi
+    
+    # Rebuild
+    build_cached_container "$image" "$container_cmd"
+}
+
+# Clear all cached containers
+clear_container_cache() {
+    if [[ -d "$CONTAINER_CACHE_DIR" ]]; then
+        log_status "INFO" "Clearing container cache: $CONTAINER_CACHE_DIR"
+        rm -rf "$CONTAINER_CACHE_DIR"/*.sif
+        log_status "SUCCESS" "Container cache cleared"
+    else
+        log_status "INFO" "No container cache to clear"
+    fi
+}
+
+# ============================================================================
 # EXPORTS
 # ============================================================================
 
@@ -438,3 +623,9 @@ export -f prepare_container
 export -f find_cursor_agent
 export -f launch_container
 export -f get_container_prompt_additions
+export -f get_cache_filename
+export -f get_cached_container
+export -f build_cached_container
+export -f list_cached_containers
+export -f rebuild_cached_container
+export -f clear_container_cache

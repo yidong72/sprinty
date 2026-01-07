@@ -126,6 +126,42 @@ sprinty --container node:20 --workspace . run
 
 **Requirements:** Apptainer (`sudo apt install apptainer`)
 
+### Container Caching
+
+The first container run builds a cached image with pre-installed packages. Subsequent runs start instantly!
+
+```bash
+# First run: builds cache (takes 2-3 minutes)
+sprinty --container --workspace . run
+# Output: "Building cached container (one-time setup)..."
+
+# Subsequent runs: uses cache (starts instantly)
+sprinty --container --workspace . run
+# Output: "Using cached container: ~/.local/share/sprinty/containers/ubuntu_24.04.sif"
+```
+
+**Managing the cache:**
+
+```bash
+# Pre-build cache (optional, to avoid waiting on first run)
+sprinty container build                 # Default: ubuntu:24.04
+sprinty container build python:3.12     # Custom image
+
+# List cached containers
+sprinty container list
+
+# Clear cache (to rebuild with updates)
+sprinty container clear
+```
+
+**Cache location:** `~/.local/share/sprinty/containers/`
+
+**Pre-installed in cached image:**
+- curl, git, jq, tmux
+- python3, pip, venv
+- build-essential
+- Proper locale (en_US.UTF-8)
+
 ### Backlog Management
 
 ```bash
@@ -157,6 +193,26 @@ sprinty metrics
 # - Health score
 ```
 
+### Container Cache Management
+
+```bash
+# Build cached container (optional, speeds up first run)
+sprinty container build                 # Default: ubuntu:24.04
+sprinty container build python:3.12     # Custom image
+sprinty container build node:20         # Node.js environment
+
+# List all cached containers
+sprinty container list
+# Output:
+# Cached containers in: ~/.local/share/sprinty/containers
+#   ubuntu_24.04.sif (450M) - 2026-01-06 12:00:00
+#   python_3.12.sif (520M) - 2026-01-06 12:05:00
+# Total: 2 container(s)
+
+# Clear all cached containers
+sprinty container clear
+```
+
 ### Troubleshooting
 
 ```bash
@@ -165,6 +221,10 @@ sprinty --reset-circuit
 
 # Reset rate limiter
 sprinty --reset-rate-limit
+
+# Rebuild container cache (if corrupt or outdated)
+sprinty container clear
+sprinty container build
 
 # Show help
 sprinty --help

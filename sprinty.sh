@@ -631,6 +631,9 @@ Commands:
     backlog list                     List backlog items
     backlog add <title> [options]    Add backlog item
     metrics                          Show sprint metrics
+    container build [image]          Build cached container
+    container list                   List cached containers
+    container clear                  Clear container cache
 
 Global Options:
     -h, --help              Show this help message
@@ -671,6 +674,17 @@ Container Mode:
     - Host system is protected from destructive operations
     - cursor-agent is automatically mounted from host (no install needed)
 
+    Container Caching:
+    - First run builds a cached image (2-3 minutes, one-time setup)
+    - Subsequent runs start instantly using the cached image
+    - Cache location: ~/.local/share/sprinty/containers/
+    - Pre-installed: curl, git, jq, tmux, python3, pip, build-essential
+
+    Cache Management:
+      sprinty container build [image]  - Pre-build cache
+      sprinty container list           - Show cached containers
+      sprinty container clear          - Clear cache to rebuild
+
     Requires: Apptainer (install: sudo apt install apptainer)
 
 Environment Variables:
@@ -678,6 +692,7 @@ Environment Variables:
     MAX_CALLS_PER_HOUR          Rate limit (default: 100)
     SPRINTY_MONITOR_REFRESH     Monitor refresh interval in seconds (default: 5)
     SPRINTY_CONTAINER_IMAGE     Default container image
+    SPRINTY_CONTAINER_CACHE     Container cache directory (default: ~/.local/share/sprinty/containers)
     SPRINTY_IN_CONTAINER        Set automatically when running in container
 
 Exit Codes:
@@ -940,6 +955,38 @@ main() {
             ;;
         metrics)
             show_metrics_dashboard
+            ;;
+        container)
+            local subcmd=${1:-""}
+            shift 2>/dev/null || true
+            case $subcmd in
+                build)
+                    local img=${1:-$DEFAULT_CONTAINER_IMAGE}
+                    rebuild_cached_container "$img"
+                    ;;
+                list)
+                    list_cached_containers
+                    ;;
+                clear)
+                    clear_container_cache
+                    ;;
+                *)
+                    echo "Container cache management"
+                    echo ""
+                    echo "Usage: sprinty container <command>"
+                    echo ""
+                    echo "Commands:"
+                    echo "  build [image]  Build/rebuild cached container (default: ubuntu:24.04)"
+                    echo "  list           List cached containers"
+                    echo "  clear          Clear all cached containers"
+                    echo ""
+                    echo "Examples:"
+                    echo "  sprinty container build"
+                    echo "  sprinty container build python:3.12"
+                    echo "  sprinty container list"
+                    echo "  sprinty container clear"
+                    ;;
+            esac
             ;;
         --reset-circuit)
             reset_circuit_breaker "Manual reset via CLI"
