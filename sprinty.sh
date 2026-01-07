@@ -366,6 +366,164 @@ execute_phase() {
 }
 
 # ============================================================================
+# RESUME LOGIC
+# ============================================================================
+
+# Check if we're resuming an incomplete sprint
+is_resuming_sprint() {
+    local current_sprint=$(get_current_sprint)
+    local current_phase=$(get_current_phase)
+    
+    # Not resuming if Sprint 0 (initialization)
+    if [[ $current_sprint -eq 0 ]]; then
+        return 1
+    fi
+    
+    # Resuming if we're in the middle of a phase (not planning)
+    if [[ "$current_phase" != "planning" ]]; then
+        log_debug "Resume detected: Sprint $current_sprint, Phase $current_phase"
+        return 0
+    fi
+    
+    # In planning phase - check if it already completed
+    # (tasks were assigned to this sprint)
+    if is_backlog_initialized; then
+        local sprint_tasks=$(jq --argjson s "$current_sprint" \
+            '[.items[] | select(.sprint_id == $s)] | length' "$BACKLOG_FILE" 2>/dev/null || echo "0")
+        
+        if [[ $sprint_tasks -gt 0 ]]; then
+            log_debug "Resume detected: Sprint $current_sprint planning complete ($sprint_tasks tasks assigned)"
+            return 0
+        fi
+    fi
+    
+    # Not resuming - fresh sprint
+    return 1
+}
+
+# Resume execution of current sprint from current phase
+resume_sprint() {
+    local sprint_id=$(get_current_sprint)
+    local current_phase=$(get_current_phase)
+    local rework_count=$(get_rework_count)
+    
+    log_status "INFO" "📍 Resuming Sprint $sprint_id from phase: $current_phase"
+    log_status "SPRINT" "=== Sprint $sprint_id (resumed) ==="
+    
+    local max_rework=$(get_sprint_state "max_rework_cycles" 2>/dev/null || echo "$DEFAULT_MAX_REWORK_CYCLES")
+    [[ "$max_rework" == "null" || -z "$max_rework" ]] && max_rework="$DEFAULT_MAX_REWORK_CYCLES"
+    max_rework=${max_rework:-3}
+    
+    # Execute from current phase onwards
+    case "$current_phase" in
+        "planning")
+            # Check if planning is actually complete
+            if is_phase_complete "planning"; then
+                log_status "INFO" "Planning phase already complete, skipping to implementation"
+            else
+                execute_phase "planning" "product_owner"
+                if [[ $? -eq 3 ]]; then
+                    return 10  # Circuit breaker
+                fi
+            fi
+            
+            # Fall through to implementation
+            ;&  # Bash fall-through syntax
+        
+        "implementation")
+            # Implementation + QA rework loop
+            while [[ $rework_count -lt $max_rework ]]; do
+                log_status "INFO" "Implementation/QA cycle $((rework_count + 1))/$max_rework"
+                
+                # Only run implementation if not already complete
+                if [[ "$current_phase" == "implementation" ]] || ! is_phase_complete "implementation"; then
+                    execute_phase "implementation" "developer"
+                    if [[ $? -eq 3 ]]; then
+                        return 10  # Circuit breaker
+                    fi
+                fi
+                
+                # Check if project is done
+                if is_project_complete; then
+                    log_status "SUCCESS" "Project complete after implementation"
+                    mark_project_done
+                    return 20
+                fi
+                
+                # QA phase
+                execute_phase "qa" "qa"
+                if [[ $? -eq 3 ]]; then
+                    return 10  # Circuit breaker
+                fi
+                
+                # Check if QA failed tasks exist
+                if ! has_tasks_to_rework; then
+                    log_status "SUCCESS" "No QA failures, proceeding to review"
+                    break
+                fi
+                
+                # Handle rework
+                rework_count=$((rework_count + 1))
+                increment_rework
+                
+                if is_rework_limit_exceeded; then
+                    log_status "WARN" "Rework limit exceeded for sprint $sprint_id"
+                    break
+                fi
+                
+                log_status "WARN" "QA failures detected, starting rework cycle $rework_count"
+                
+                # Set phase back to implementation for rework
+                set_current_phase "implementation"
+            done
+            
+            # Fall through to review
+            ;&
+        
+        "qa")
+            # If we're resuming at QA, we already handled it above
+            # Just need to check for rework
+            if [[ "$current_phase" == "qa" ]]; then
+                # QA might not have completed yet
+                if ! is_phase_complete "qa"; then
+                    execute_phase "qa" "qa"
+                    if [[ $? -eq 3 ]]; then
+                        return 10
+                    fi
+                fi
+            fi
+            
+            # Fall through to review
+            ;&
+        
+        "review")
+            # Review phase
+            execute_phase "review" "product_owner"
+            if [[ $? -eq 3 ]]; then
+                return 10  # Circuit breaker
+            fi
+            ;;
+    esac
+    
+    # Record sprint velocity before ending
+    local sprint_done_points=$(get_sprint_completed_points "$sprint_id")
+    local sprint_total_points=$(get_sprint_points "$sprint_id")
+    record_sprint_velocity "$sprint_id" "$sprint_done_points" "$sprint_total_points"
+    
+    # End sprint
+    end_sprint "completed"
+    
+    # Check if project is done
+    if is_project_complete; then
+        log_status "SUCCESS" "🎉 Project complete after sprint $sprint_id"
+        mark_project_done
+        return 20
+    fi
+    
+    return 0
+}
+
+# ============================================================================
 # SPRINT EXECUTION
 # ============================================================================
 
@@ -405,6 +563,13 @@ execute_sprint_zero() {
 
 # Execute a regular sprint (1-N)
 execute_sprint() {
+    # Check if we should resume instead of starting fresh
+    if is_resuming_sprint; then
+        resume_sprint
+        return $?
+    fi
+    
+    # Fresh sprint - start normally
     local sprint_id=$(start_sprint)
     local start_result=$?
     
@@ -536,17 +701,23 @@ run_sprinty() {
     
     # Get config values
     local max_sprints=$(jq -r '.sprint.max_sprints // 10' "$SPRINTY_DIR/config.json" 2>/dev/null || echo "10")
-    local sprint_count=0
     
-    # Main sprint loop
-    while ! is_project_marked_done && [[ $sprint_count -lt $max_sprints ]]; do
-        sprint_count=$((sprint_count + 1))
+    # Main sprint loop - use state file sprint number, not local counter
+    while ! is_project_marked_done; do
+        local current_sprint=$(get_current_sprint)
+        
+        # Check max sprints
+        if [[ $current_sprint -ge $max_sprints ]]; then
+            log_status "WARN" "Max sprints reached ($current_sprint >= $max_sprints)"
+            update_status "$global_loop_count" "$(get_current_phase)" "$current_sprint" "stopped" "max_sprints"
+            break
+        fi
         
         # Check for graceful exit before starting new sprint
         local exit_reason=$(should_exit_gracefully)
         if [[ -n "$exit_reason" ]]; then
             log_status "SUCCESS" "🏁 Graceful exit triggered: $exit_reason"
-            update_status "$global_loop_count" "$(get_current_phase)" "$sprint_count" "completed" "$exit_reason"
+            update_status "$global_loop_count" "$(get_current_phase)" "$current_sprint" "completed" "$exit_reason"
             break
         fi
         
@@ -555,21 +726,21 @@ run_sprinty() {
         
         case $result in
             0)
-                log_status "SUCCESS" "Sprint $sprint_count completed"
+                log_status "SUCCESS" "Sprint $current_sprint completed"
                 ;;
             10)
                 log_status "ERROR" "Circuit breaker opened"
-                update_status "$global_loop_count" "$(get_current_phase)" "$sprint_count" "halted" "circuit_breaker"
+                update_status "$global_loop_count" "$(get_current_phase)" "$current_sprint" "halted" "circuit_breaker"
                 exit 10
                 ;;
             20)
                 log_status "SUCCESS" "🎉 Project complete!"
-                update_status "$global_loop_count" "$(get_current_phase)" "$sprint_count" "completed" "project_done"
+                update_status "$global_loop_count" "$(get_current_phase)" "$current_sprint" "completed" "project_done"
                 exit 20
                 ;;
             21)
                 log_status "WARN" "Max sprints reached"
-                update_status "$global_loop_count" "$(get_current_phase)" "$sprint_count" "stopped" "max_sprints"
+                update_status "$global_loop_count" "$(get_current_phase)" "$current_sprint" "stopped" "max_sprints"
                 exit 21
                 ;;
         esac
