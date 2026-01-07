@@ -377,24 +377,49 @@ show_post_install() {
     echo -e "${GREEN}║              Installation Successful! 🎉                   ║${NC}"
     echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo "Quick Start:"
+    echo -e "${CYAN}Quick Start:${NC}"
     echo ""
-    echo "  1. Create a new project:"
+    echo "  1. Navigate to your project and initialize:"
+    echo -e "     ${CYAN}cd /path/to/your/project${NC}"
     echo -e "     ${CYAN}sprinty init my-project --prd docs/PRD.md${NC}"
     echo ""
-    echo "  2. Run the sprint loop:"
-    echo -e "     ${CYAN}sprinty run${NC}"
+    echo "  2. Run in container sandbox (RECOMMENDED):"
+    echo -e "     ${CYAN}sprinty --container --workspace . --monitor run${NC}"
     echo ""
-    echo "  3. Check status:"
+    echo "  3. Check status and metrics:"
     echo -e "     ${CYAN}sprinty status${NC}"
+    echo -e "     ${CYAN}sprinty metrics${NC}"
+    echo ""
+    echo -e "${CYAN}Container Cache (speeds up subsequent runs):${NC}"
+    echo ""
+    echo -e "     ${CYAN}sprinty container build${NC}              # Pre-build cache (optional)"
+    echo -e "     ${CYAN}sprinty container list${NC}               # Show cached containers"
+    echo -e "     ${CYAN}sprinty container clear${NC}              # Clear cache to rebuild"
+    echo ""
+    echo -e "${CYAN}Flags:${NC}"
+    echo "     --container [image]   Run in Apptainer sandbox (default: ubuntu:24.04)"
+    echo "     --workspace <path>    Mount directory as /workspace in container"
+    echo "     --monitor, -m         Show real-time tmux dashboard"
     echo ""
     echo "For more information:"
     echo -e "  ${CYAN}sprinty --help${NC}"
     echo ""
     
+    # Check dependencies
+    local missing_deps=""
     if ! command -v cursor-agent &> /dev/null; then
-        echo -e "${YELLOW}Note: Install cursor-agent before running sprinty:${NC}"
-        echo "  curl https://cursor.com/install -fsS | bash"
+        missing_deps="${missing_deps}\n  - cursor-agent: npm install -g @anthropic/cursor-agent"
+    fi
+    if ! command -v apptainer &> /dev/null && ! command -v singularity &> /dev/null; then
+        missing_deps="${missing_deps}\n  - apptainer: sudo apt install apptainer (for container mode)"
+    fi
+    if ! command -v jq &> /dev/null; then
+        missing_deps="${missing_deps}\n  - jq: sudo apt install jq"
+    fi
+    
+    if [[ -n "$missing_deps" ]]; then
+        echo -e "${YELLOW}Recommended dependencies to install:${NC}"
+        echo -e "$missing_deps"
         echo ""
     fi
 }
