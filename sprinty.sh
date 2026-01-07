@@ -301,7 +301,24 @@ execute_phase() {
                     fi
                     
                     # Record circuit breaker data
-                    local files_changed=$(git diff --name-only 2>/dev/null | wc -l | tr -d ' ')
+                    # Count both tracked changes AND untracked files (for new projects)
+                    local tracked_changes=$(git diff --name-only 2>/dev/null | wc -l | tr -d ' ')
+                    local untracked_files=$(git ls-files --others --exclude-standard 2>/dev/null | wc -l | tr -d ' ')
+                    local git_changes=$((tracked_changes + untracked_files))
+                    
+                    # Also check status.json for task progress
+                    local task_progress=0
+                    if [[ -f "$STATUS_FILE" ]]; then
+                        local current_tasks=$(jq '.agent_status.tasks_completed // 0' "$STATUS_FILE" 2>/dev/null || echo 0)
+                        local current_points=$(jq '.agent_status.story_points_done // 0' "$STATUS_FILE" 2>/dev/null || echo 0)
+                        if [[ $current_tasks -gt 0 ]] || [[ $current_points -gt 0 ]]; then
+                            task_progress=1
+                        fi
+                    fi
+                    
+                    # Progress detected if EITHER files changed OR tasks completed
+                    local files_changed=$((git_changes + task_progress))
+                    
                     local has_errors="false"
                     if grep -qE '(^Error:|^ERROR:|[Ee]xception|Fatal|FATAL)' "$output_file" 2>/dev/null; then
                         has_errors="true"
