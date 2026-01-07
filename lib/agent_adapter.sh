@@ -503,8 +503,8 @@ execute_cursor_agent() {
     
     log_status "INFO" "Executing cursor-agent (timeout: ${timeout_seconds}s)..."
     
-    # Execute with timeout
-    timeout ${timeout_seconds}s "$CURSOR_AGENT_CMD" "${cmd_args[@]}" > "$output_file" 2>&1
+    # Execute with timeout (--kill-after ensures SIGKILL if SIGTERM fails)
+    timeout --kill-after=30s ${timeout_seconds}s "$CURSOR_AGENT_CMD" "${cmd_args[@]}" > "$output_file" 2>&1
     local exit_code=$?
     
     # Handle timeout
@@ -530,7 +530,7 @@ execute_cursor_agent_raw() {
     
     cmd_args+=("$prompt_string")
     
-    timeout ${timeout_seconds}s "$CURSOR_AGENT_CMD" "${cmd_args[@]}" > "$output_file" 2>&1
+    timeout --kill-after=30s ${timeout_seconds}s "$CURSOR_AGENT_CMD" "${cmd_args[@]}" > "$output_file" 2>&1
     return $?
 }
 
@@ -624,8 +624,8 @@ execute_opencode() {
     log_status "INFO" "Executing opencode (timeout: ${timeout_seconds}s)..."
     log_debug "Using model: ${AGENT_MODEL}"
     
-    # Execute with timeout
-    timeout ${timeout_seconds}s opencode "${cmd_args[@]}" > "$output_file" 2>&1
+    # Execute with timeout (--kill-after ensures SIGKILL if SIGTERM fails)
+    timeout --kill-after=30s ${timeout_seconds}s opencode "${cmd_args[@]}" > "$output_file" 2>&1
     local exit_code=$?
     
     # Handle timeout
@@ -651,7 +651,7 @@ execute_opencode_raw() {
     
     cmd_args+=("$prompt_string")
     
-    timeout ${timeout_seconds}s opencode "${cmd_args[@]}" > "$output_file" 2>&1
+    timeout --kill-after=30s ${timeout_seconds}s opencode "${cmd_args[@]}" > "$output_file" 2>&1
     return $?
 }
 
