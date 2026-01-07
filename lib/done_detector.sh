@@ -426,14 +426,12 @@ show_exit_status() {
         local signals=$(cat "$EXIT_SIGNALS_FILE")
         local idle=$(echo "$signals" | jq '.idle_loops | length' 2>/dev/null || echo "0")
         local done_sig=$(echo "$signals" | jq '.done_signals | length' 2>/dev/null || echo "0")
-        local completion=$(echo "$signals" | jq '.completion_indicators | length' 2>/dev/null || echo "0")
         local test_only=$(echo "$signals" | jq '.test_only_loops | length' 2>/dev/null || echo "0")
         
         echo ""
         echo -e "${CYAN}Exit Signals:${NC}"
         echo "  Idle loops:         $idle / $MAX_CONSECUTIVE_IDLE_LOOPS"
         echo "  Done signals:       $done_sig / $MAX_CONSECUTIVE_DONE_SIGNALS"
-        echo "  Completion hints:   $completion / 3"
         echo "  Test-only loops:    $test_only / $MAX_CONSECUTIVE_TEST_LOOPS"
     fi
     

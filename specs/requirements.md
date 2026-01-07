@@ -318,7 +318,10 @@ parse_agent_response() {
 # Initialize project
 sprinty init my-project --prd specs/PRD.md
 
-# Run sprints
+# Run sprints with monitoring dashboard (recommended)
+sprinty --monitor run
+
+# Or run without monitoring
 sprinty run
 
 # Check status

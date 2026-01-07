@@ -118,7 +118,7 @@ init_sprinty() {
     echo ""
     echo -e "${GREEN}Project initialized! Next steps:${NC}"
     echo "  1. Review specs/PRD.md (or create one)"
-    echo "  2. Run: sprinty run"
+    echo "  2. Run: sprinty --monitor run"
     echo ""
 }
 

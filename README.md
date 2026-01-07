@@ -86,7 +86,10 @@ sprinty init shopping-cart --prd specs/PRD.md
 ### Sprint Execution
 
 ```bash
-# Run full sprint loop (continues until done)
+# Run with tmux monitoring dashboard (recommended)
+sprinty --monitor run
+
+# Or run without monitoring
 sprinty run
 
 # Check status
