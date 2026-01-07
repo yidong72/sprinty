@@ -848,7 +848,7 @@ source ~/.bashrc
 {
   "agent": {
     "cli_tool": "cursor-agent",
-    "model": "claude-sonnet-4"
+    "model": "opus-4.5-thinking"
   }
 }
 ```
@@ -859,9 +859,10 @@ curl https://cursor.com/install -fsS | bash
 ```
 
 **Available Models:**
-- `claude-sonnet-4` - Recommended, most reliable
-- `claude-opus-4` - Most powerful
-- `claude-3-5-sonnet-20241022` - Previous version
+- `opus-4.5-thinking` - Default, most capable with extended thinking
+- `opus-4.5` - Claude Opus without thinking
+- `sonnet-4.5-thinking` - Claude Sonnet with thinking (faster)
+- `sonnet-4.5` - Claude Sonnet (fastest)
 
 #### Comparison
 
@@ -869,7 +870,7 @@ curl https://cursor.com/install -fsS | bash
 |---------|----------|--------------|
 | **Cost** | ✅ Free tier available | 💰 Requires Cursor subscription |
 | **Setup** | Easy (curl install) | Easy (curl install) |
-| **Default Model** | `opencode/glm-4.7-free` | `claude-sonnet-4` |
+| **Default Model** | `opencode/glm-4.7-free` | `opus-4.5-thinking` |
 | **Stability** | ⚠️ May crash (Bun runtime) | ✅ Very stable |
 | **Instruction Following** | ⚠️ Variable (free model) | ✅ Excellent |
 | **Best For** | Testing, experimentation | Production, important projects |
