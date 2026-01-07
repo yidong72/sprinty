@@ -408,7 +408,7 @@ show_post_install() {
     # Check dependencies
     local missing_deps=""
     if ! command -v cursor-agent &> /dev/null; then
-        missing_deps="${missing_deps}\n  - cursor-agent: npm install -g @anthropic/cursor-agent"
+        missing_deps="${missing_deps}\n  - cursor-agent: curl https://cursor.com/install -fsS | bash"
     fi
     if ! command -v apptainer &> /dev/null && ! command -v singularity &> /dev/null; then
         missing_deps="${missing_deps}\n  - apptainer: sudo apt install apptainer (for container mode)"

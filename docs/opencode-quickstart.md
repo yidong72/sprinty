@@ -182,7 +182,7 @@ If you prefer Cursor Agent (requires API key):
 
 ```bash
 # Install Cursor Agent
-npm install -g @anthropic/cursor-agent
+curl https://cursor.com/install -fsS | bash
 
 # Update your config
 cat > .sprinty/config.json << 'EOF'

@@ -368,6 +368,51 @@ check_project_completion() {
 # STATUS DISPLAY
 # ============================================================================
 
+# Show agent configuration status
+show_agent_config_status() {
+    local config_file="${SPRINTY_DIR}/config.json"
+    
+    echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║                 Agent Configuration                        ║${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
+    
+    if [[ -f "$config_file" ]]; then
+        local cli_tool=$(jq -r '.agent.cli_tool // "cursor-agent"' "$config_file" 2>/dev/null || echo "cursor-agent")
+        local model=$(jq -r '.agent.model // "unknown"' "$config_file" 2>/dev/null || echo "unknown")
+        local timeout=$(jq -r '.agent.timeout_minutes // 15' "$config_file" 2>/dev/null || echo "15")
+        
+        # Check if agent is installed
+        local agent_status=""
+        case "$cli_tool" in
+            opencode)
+                if command -v opencode &> /dev/null; then
+                    agent_status="${GREEN}✓ Installed${NC} ($(opencode --version 2>/dev/null || echo 'version unknown'))"
+                else
+                    agent_status="${RED}✗ Not installed${NC}"
+                fi
+                ;;
+            cursor-agent)
+                if command -v cursor-agent &> /dev/null; then
+                    agent_status="${GREEN}✓ Installed${NC} ($(cursor-agent --version 2>/dev/null || echo 'version unknown'))"
+                else
+                    agent_status="${RED}✗ Not installed${NC}"
+                fi
+                ;;
+            *)
+                agent_status="${YELLOW}⚠ Unknown agent${NC}"
+                ;;
+        esac
+        
+        echo -e "Agent CLI Tool:    ${CYAN}$cli_tool${NC}"
+        echo -e "Agent Status:      $agent_status"
+        echo -e "Model:             ${CYAN}$model${NC}"
+        echo -e "Timeout:           ${timeout} minutes"
+    else
+        echo -e "${YELLOW}⚠ No configuration file found${NC}"
+        echo -e "Using defaults: cursor-agent with opus-4.5-thinking"
+    fi
+}
+
 # Show sprint status
 show_sprint_status() {
     if [[ ! -f "$SPRINT_STATE_FILE" ]]; then
@@ -448,5 +493,6 @@ export -f get_max_loops_for_phase
 export -f is_phase_loop_limit_exceeded
 export -f mark_project_done
 export -f check_project_completion
+export -f show_agent_config_status
 export -f show_sprint_status
 export -f get_role_for_phase

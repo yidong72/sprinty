@@ -149,7 +149,7 @@ sudo apt install jq
 curl -fsSL https://opencode.ai/install | bash
 
 # Option 2: Cursor Agent
-npm install -g @anthropic/cursor-agent
+curl https://cursor.com/install -fsS | bash
 ```
 
 </td>
@@ -826,7 +826,7 @@ source ~/.bashrc
 
 **Installation:**
 ```bash
-npm install -g @anthropic/cursor-agent
+curl https://cursor.com/install -fsS | bash
 ```
 
 **Available Models:**

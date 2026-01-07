@@ -542,7 +542,11 @@ show_status() {
         return 1
     fi
     
+    # Agent configuration status
+    show_agent_config_status
+    
     # Sprint status
+    echo ""
     show_sprint_status
     
     # Backlog summary

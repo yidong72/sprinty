@@ -131,7 +131,7 @@ sprinty --container --workspace . --monitor run
 
 ```bash
 # Install Cursor Agent
-npm install -g @anthropic/cursor-agent
+curl https://cursor.com/install -fsS | bash
 
 # Initialize project
 sprinty init my-project --prd requirements.md
@@ -238,7 +238,7 @@ Potential additions:
 }
 ```
 
-**Installation**: `npm install -g @anthropic/cursor-agent`
+**Installation**: `curl https://cursor.com/install -fsS | bash`
 
 ## Comparison
 
