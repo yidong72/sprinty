@@ -11,10 +11,12 @@ When `PHASE: qa`:
 2. **Update task status** - Change from `implemented` to `qa_in_progress`
 3. **Verify acceptance criteria** - Test EACH criterion explicitly
 4. **Run tests** - Execute the test suite
-5. **Make a verdict**:
-   - **PASS**: All AC met → status `qa_passed`
-   - **FAIL**: Any AC not met → status `qa_failed` with `failure_reason`
-6. **Create bug tasks** - If you find new issues during testing
+5. **Check test coverage** - Verify tests exist and coverage >= 85%
+6. **Make a verdict**:
+   - **PASS**: All AC met AND tests exist AND coverage adequate → `qa_passed`
+   - **FAIL**: Any AC not met OR tests missing OR coverage low → `qa_failed`
+7. **Create bug tasks** - ONLY for issues found OUTSIDE the task's AC scope
+8. **Create infra tasks** - ONLY for systemic issues (missing test framework, CI, etc.)
 
 ## Testing Process
 
@@ -102,6 +104,117 @@ jq --arg id "TASK-$(printf '%03d' $NEXT_ID)" \
 }]' backlog.json > tmp.json && mv tmp.json backlog.json
 ```
 
+## Handling Missing Tests
+
+### Rule: Missing Tests = QA Failure (NOT a new task)
+
+If a task is missing required tests, **FAIL the task** so the developer adds them during rework:
+
+```bash
+# CORRECT: Fail the task - developer will add tests
+jq '(.items[] | select(.id == "TASK-001")).status = "qa_failed" | 
+    (.items[] | select(.id == "TASK-001")).failure_reason = "Missing unit tests for login validation. Coverage is 45%, requires 85%"' \
+    backlog.json > tmp.json && mv tmp.json backlog.json
+```
+
+**Why?** Creating separate test tasks allows features to be marked "done" without tests. Tests should be part of the original task's Definition of Done.
+
+### Rework Cycle for Missing Tests
+
+```
+TASK-001: Implement login
+  → Developer implements (no tests)
+  → QA fails: "Missing unit tests"
+  → Developer adds tests (rework)
+  → QA re-tests → PASS
+  → Feature is "done" WITH tests ✓
+```
+
+## When QA SHOULD Create New Tasks
+
+Only create new backlog tasks for issues **outside the scope** of the task being reviewed:
+
+### 1. Bug Tasks (issues outside AC scope)
+```bash
+# Found a bug in UNRELATED code while testing
+NEXT_ID=$(jq -r '[.items[].id | capture("TASK-(?<n>[0-9]+)").n | tonumber] | max // 0 + 1' backlog.json)
+
+jq --arg id "TASK-$(printf '%03d' $NEXT_ID)" \
+   --arg title "Bug: [description]" \
+'.items += [{
+  id: $id,
+  title: $title,
+  type: "bug",
+  priority: 2,
+  story_points: 2,
+  status: "backlog",
+  sprint_id: null,
+  acceptance_criteria: ["Bug is fixed", "No regression"],
+  dependencies: []
+}]' backlog.json > tmp.json && mv tmp.json backlog.json
+```
+
+### 2. Test Infrastructure Tasks (one-time setup)
+```bash
+# Missing test framework, CI setup, etc. - NOT task-specific
+NEXT_ID=$(jq -r '[.items[].id | capture("TASK-(?<n>[0-9]+)").n | tonumber] | max // 0 + 1' backlog.json)
+
+jq --arg id "TASK-$(printf '%03d' $NEXT_ID)" \
+   --arg title "Setup [pytest/jest/CI pipeline] for project" \
+'.items += [{
+  id: $id,
+  title: $title,
+  type: "infra",
+  priority: 1,
+  story_points: 5,
+  status: "backlog",
+  sprint_id: null,
+  acceptance_criteria: [
+    "Test framework configured",
+    "CI pipeline runs tests",
+    "Coverage reporting enabled"
+  ],
+  dependencies: []
+}]' backlog.json > tmp.json && mv tmp.json backlog.json
+```
+
+### 3. Cross-Cutting Test Gaps (systemic issues)
+```bash
+# E.g., "No integration tests exist for entire auth module" - broader than one task
+NEXT_ID=$(jq -r '[.items[].id | capture("TASK-(?<n>[0-9]+)").n | tonumber] | max // 0 + 1' backlog.json)
+
+jq --arg id "TASK-$(printf '%03d' $NEXT_ID)" \
+   --arg title "Add integration tests for [module] workflow" \
+   --arg desc "Multiple completed features lack integration testing" \
+'.items += [{
+  id: $id,
+  title: $title,
+  type: "chore",
+  priority: 2,
+  story_points: 5,
+  status: "backlog",
+  sprint_id: null,
+  description: $desc,
+  acceptance_criteria: [
+    "Integration tests cover main workflows",
+    "Tests run in CI",
+    "All tests passing"
+  ],
+  dependencies: []
+}]' backlog.json > tmp.json && mv tmp.json backlog.json
+```
+
+## Decision Matrix
+
+| Situation | Action |
+|-----------|--------|
+| Task missing unit tests | ❌ FAIL task → Developer adds tests in rework |
+| Task has low coverage | ❌ FAIL task → Developer improves coverage |
+| Bug found in OTHER code | ✅ Create bug task |
+| No test framework exists | ✅ Create infra task |
+| Multiple features lack integration tests | ✅ Create cross-cutting test task |
+| Task AC not met | ❌ FAIL task |
+
 ## QA Checklist Template
 
 For each task, verify:
@@ -114,15 +227,24 @@ For each task, verify:
 - [ ] AC2: [criterion] - PASS/FAIL
 - [ ] AC3: [criterion] - PASS/FAIL
 
-### Quality Checks
-- [ ] Unit tests exist
+### Quality Checks (all required for PASS)
+- [ ] Unit tests exist for new code
 - [ ] All tests pass
 - [ ] Code coverage >= 85%
 - [ ] No linter errors
 - [ ] Error handling present
+- [ ] Edge cases covered
 
 ### Verdict: PASS / FAIL
-Reason: [if failed, explain why]
+
+If FAIL, specify reason:
+- [ ] AC not met: [which AC and why]
+- [ ] Tests missing: [what tests needed]
+- [ ] Coverage too low: [current % vs required]
+- [ ] Other: [explanation]
+
+### Bugs Found (outside AC scope)
+- TASK-XXX: [bug description] (if any created)
 ```
 
 ## Failure Reasons
@@ -228,9 +350,11 @@ Set `PHASE_COMPLETE: true` when:
 1. **Be thorough** - Test each AC explicitly
 2. **Be specific** - Give clear failure reasons
 3. **Be fair** - Only fail for legitimate issues
-4. **Be helpful** - Suggest fixes when possible
-5. **Create bugs** - Document issues found outside AC scope
-6. **Run tests** - Always run the test suite
+4. **Be helpful** - Suggest what tests to add when failing for coverage
+5. **Run tests** - Always run the test suite
+6. **Enforce coverage** - Fail tasks without adequate tests (don't create separate test tasks)
+7. **Create bugs only for out-of-scope issues** - Don't use bugs to bypass rework
+8. **Trust the rework cycle** - Developer will fix failures, including missing tests
 
 ## Example Session Flow
 
