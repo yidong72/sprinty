@@ -790,7 +790,34 @@ my-project/
 
 ### Choosing Your AI Agent Backend
 
-Sprinty supports multiple AI agent CLI tools. Configure your preferred backend in `.sprinty/config.json`:
+Sprinty supports multiple AI agent CLI tools. During initialization, Sprinty creates config templates for easy switching:
+
+```bash
+sprinty init my-project --prd requirements.txt
+```
+
+This creates:
+- `.sprinty/config.json` (active config, default: OpenCode)
+- `.sprinty/config.cursor_agent.json` (Cursor-Agent template)
+- `.sprinty/config.opencode.json` (OpenCode template)
+
+#### Quick Switch Between Agents
+
+**Switch to Cursor-Agent (Recommended for Production):**
+```bash
+cp .sprinty/config.cursor_agent.json .sprinty/config.json
+```
+
+**Switch to OpenCode (Free tier):**
+```bash
+cp .sprinty/config.opencode.json .sprinty/config.json
+```
+
+**Temporary Override:**
+```bash
+export SPRINTY_AGENT_CLI=cursor-agent
+sprinty run
+```
 
 #### Option 1: OpenCode (Default, Free)
 
@@ -813,13 +840,15 @@ source ~/.bashrc
 - `opencode/glm-4.7-free` - Free, no API key required
 - See [OpenCode documentation](https://opencode.ai/docs) for more models
 
-#### Option 2: Cursor Agent
+**Note:** Free model may be less stable than paid options.
+
+#### Option 2: Cursor Agent (Recommended for Production)
 
 ```json
 {
   "agent": {
     "cli_tool": "cursor-agent",
-    "model": "opus-4.5-thinking"
+    "model": "claude-sonnet-4"
   }
 }
 ```
@@ -830,19 +859,22 @@ curl https://cursor.com/install -fsS | bash
 ```
 
 **Available Models:**
-- `opus-4.5-thinking` - Claude Opus with extended thinking
-- `sonnet-4.5` - Claude Sonnet (faster)
-- Check cursor-agent documentation for latest models
+- `claude-sonnet-4` - Recommended, most reliable
+- `claude-opus-4` - Most powerful
+- `claude-3-5-sonnet-20241022` - Previous version
 
 #### Comparison
 
 | Feature | OpenCode | Cursor Agent |
 |---------|----------|--------------|
-| **Cost** | ✅ Free | 💰 Requires API key/subscription |
-| **Setup** | Easy (curl install) | npm install |
-| **Default Model** | `opencode/glm-4.7-free` | `opus-4.5-thinking` |
-| **Speed** | Fast | Very fast |
-| **Best For** | Free tier, testing, learning | Production, enterprise |
+| **Cost** | ✅ Free tier available | 💰 Requires Cursor subscription |
+| **Setup** | Easy (curl install) | Easy (curl install) |
+| **Default Model** | `opencode/glm-4.7-free` | `claude-sonnet-4` |
+| **Stability** | ⚠️ May crash (Bun runtime) | ✅ Very stable |
+| **Instruction Following** | ⚠️ Variable (free model) | ✅ Excellent |
+| **Best For** | Testing, experimentation | Production, important projects |
+
+**Recommendation:** Use Cursor-Agent for production workloads. The free OpenCode model is good for experimentation but may crash or not follow instructions consistently.
 ```
 
 ### Environment Variables

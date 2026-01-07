@@ -83,7 +83,27 @@ init_sprinty() {
             # Update project name in config
             jq --arg name "$project_name" '.project.name = $name' "$SPRINTY_DIR/config.json" > "$SPRINTY_DIR/config.json.tmp" \
                 && mv "$SPRINTY_DIR/config.json.tmp" "$SPRINTY_DIR/config.json"
-            log_status "SUCCESS" "Created config: $SPRINTY_DIR/config.json"
+            log_status "SUCCESS" "Created config: $SPRINTY_DIR/config.json (default: opencode)"
+            
+            # Copy cursor-agent template for easy switching
+            if [[ -f "$SCRIPT_DIR/templates/config.cursor_agent.json" ]]; then
+                cp "$SCRIPT_DIR/templates/config.cursor_agent.json" "$SPRINTY_DIR/config.cursor_agent.json"
+                jq --arg name "$project_name" '.project.name = $name' "$SPRINTY_DIR/config.cursor_agent.json" > "$SPRINTY_DIR/config.cursor_agent.json.tmp" \
+                    && mv "$SPRINTY_DIR/config.cursor_agent.json.tmp" "$SPRINTY_DIR/config.cursor_agent.json"
+                log_status "SUCCESS" "Created cursor-agent config: $SPRINTY_DIR/config.cursor_agent.json"
+            fi
+            
+            # Copy opencode template for easy switching back
+            if [[ -f "$SCRIPT_DIR/templates/config.opencode.json" ]]; then
+                cp "$SCRIPT_DIR/templates/config.opencode.json" "$SPRINTY_DIR/config.opencode.json"
+                jq --arg name "$project_name" '.project.name = $name' "$SPRINTY_DIR/config.opencode.json" > "$SPRINTY_DIR/config.opencode.json.tmp" \
+                    && mv "$SPRINTY_DIR/config.opencode.json.tmp" "$SPRINTY_DIR/config.opencode.json"
+                log_status "SUCCESS" "Created opencode config: $SPRINTY_DIR/config.opencode.json"
+            fi
+            
+            log_status "INFO" "💡 To switch agents:"
+            log_status "INFO" "   Cursor-Agent (recommended): cp .sprinty/config.cursor_agent.json .sprinty/config.json"
+            log_status "INFO" "   OpenCode: cp .sprinty/config.opencode.json .sprinty/config.json"
         else
             log_status "ERROR" "Config template not found: $SCRIPT_DIR/templates/config.json"
             return 1
