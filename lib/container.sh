@@ -108,6 +108,7 @@ apt-get install -y -qq --no-install-recommends \
     curl \
     git \
     jq \
+    tmux \
     python3 \
     python3-pip \
     python3-venv \
