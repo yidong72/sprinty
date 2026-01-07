@@ -143,8 +143,12 @@ sudo apt install jq
 </td>
 <td width="25%">
 
-**cursor-agent**
+**AI Agent CLI**
 ```bash
+# Option 1: OpenCode (Recommended, Free)
+curl -fsSL https://opencode.ai/install | bash
+
+# Option 2: Cursor Agent
 npm install -g @anthropic/cursor-agent
 ```
 
@@ -160,6 +164,8 @@ sudo apt install apptainer
 </td>
 </tr>
 </table>
+
+> 💡 **Note:** Sprinty supports multiple AI agent backends. By default, it uses **OpenCode** with the free `opencode/glm-4.7-free` model. You can switch to cursor-agent by modifying the configuration.
 
 ### Installation
 
@@ -756,24 +762,87 @@ my-project/
   "project": {
     "name": "my-project"
   },
+  "agent": {
+    "cli_tool": "opencode",                // Agent backend: "opencode" or "cursor-agent"
+    "model": "opencode/glm-4.7-free",      // Model to use
+    "timeout_minutes": 15,                  // Timeout for agent execution
+    "output_format": "text"                 // Output format
+  },
   "sprint": {
-    "max_sprints": 10,               // Maximum number of sprints
-    "default_capacity": 20,           // Default story points per sprint
-    "planning_max_loops": 3,          // Max iterations in planning phase
-    "implementation_max_loops": 20,   // Max iterations in dev phase
-    "qa_max_loops": 5,                // Max iterations in QA phase
-    "review_max_loops": 2,            // Max iterations in review phase
-    "max_rework_cycles": 3            // Max QA failure rework cycles
+    "max_sprints": 10,                      // Maximum number of sprints
+    "default_capacity": 20,                 // Default story points per sprint
+    "planning_max_loops": 3,                // Max iterations in planning phase
+    "implementation_max_loops": 20,         // Max iterations in dev phase
+    "qa_max_loops": 5,                      // Max iterations in QA phase
+    "review_max_loops": 2,                  // Max iterations in review phase
+    "max_rework_cycles": 3                  // Max QA failure rework cycles
   },
   "rate_limiting": {
-    "max_calls_per_hour": 100,        // API rate limit
-    "min_wait_between_calls_sec": 5   // Minimum wait between calls
+    "max_calls_per_hour": 100,              // API rate limit
+    "min_wait_between_calls_sec": 5         // Minimum wait between calls
   },
   "circuit_breaker": {
-    "max_consecutive_failures": 3,         // Halt after N failures
-    "max_consecutive_no_progress": 5       // Halt if stuck for N loops
+    "max_consecutive_failures": 3,          // Halt after N failures
+    "max_consecutive_no_progress": 5        // Halt if stuck for N loops
   }
 }
+```
+
+### Choosing Your AI Agent Backend
+
+Sprinty supports multiple AI agent CLI tools. Configure your preferred backend in `.sprinty/config.json`:
+
+#### Option 1: OpenCode (Default, Free)
+
+```json
+{
+  "agent": {
+    "cli_tool": "opencode",
+    "model": "opencode/glm-4.7-free"
+  }
+}
+```
+
+**Installation:**
+```bash
+curl -fsSL https://opencode.ai/install | bash
+source ~/.bashrc
+```
+
+**Available Models:**
+- `opencode/glm-4.7-free` - Free, no API key required
+- See [OpenCode documentation](https://opencode.ai/docs) for more models
+
+#### Option 2: Cursor Agent
+
+```json
+{
+  "agent": {
+    "cli_tool": "cursor-agent",
+    "model": "opus-4.5-thinking"
+  }
+}
+```
+
+**Installation:**
+```bash
+npm install -g @anthropic/cursor-agent
+```
+
+**Available Models:**
+- `opus-4.5-thinking` - Claude Opus with extended thinking
+- `sonnet-4.5` - Claude Sonnet (faster)
+- Check cursor-agent documentation for latest models
+
+#### Comparison
+
+| Feature | OpenCode | Cursor Agent |
+|---------|----------|--------------|
+| **Cost** | ✅ Free | 💰 Requires API key/subscription |
+| **Setup** | Easy (curl install) | npm install |
+| **Default Model** | `opencode/glm-4.7-free` | `opus-4.5-thinking` |
+| **Speed** | Fast | Very fast |
+| **Best For** | Free tier, testing, learning | Production, enterprise |
 ```
 
 ### Environment Variables
@@ -781,6 +850,12 @@ my-project/
 Customize Sprinty's behavior with these environment variables:
 
 ```bash
+# Set AI agent backend (default: opencode)
+export AGENT_CLI_TOOL=opencode  # or cursor-agent
+
+# Set agent model (optional, overrides config)
+export AGENT_MODEL="opencode/glm-4.7-free"
+
 # Set rate limit (default: 100)
 export MAX_CALLS_PER_HOUR=200
 
@@ -796,9 +871,14 @@ sprinty --container --workspace . run
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `AGENT_CLI_TOOL` | `opencode` | Agent backend (`opencode` or `cursor-agent`) |
+| `AGENT_MODEL` | (from config) | AI model to use |
+| `AGENT_TIMEOUT_MINUTES` | `15` | Timeout for agent execution |
 | `MAX_CALLS_PER_HOUR` | `100` | API rate limit for agent calls |
 | `SPRINTY_DIR` | `.sprinty` | Directory for state files |
 | `BACKLOG_FILE` | `backlog.json` | Backlog file location |
+| `OPENCODE_API_KEY` | - | API key for opencode (if using paid models) |
+| `CURSOR_API_KEY` | - | API key for cursor-agent |
 
 ---
 

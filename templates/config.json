@@ -28,7 +28,8 @@
     "min_coverage_percent": 85
   },
   "agent": {
-    "model": "opus-4.5-thinking",
+    "cli_tool": "opencode",
+    "model": "opencode/glm-4.7-free",
     "timeout_minutes": 15,
     "output_format": "text"
   },

@@ -105,8 +105,8 @@ init_sprinty() {
     # Initialize exit signals
     init_exit_signals
     
-    # Initialize cursor project config
-    init_cursor_project_config "."
+    # Initialize agent project config
+    init_agent_project_config "."
     
     # Copy PRD if provided
     if [[ -n "$prd_file" && -f "$prd_file" ]]; then
