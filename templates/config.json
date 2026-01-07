@@ -29,7 +29,7 @@
   },
   "agent": {
     "cli_tool": "opencode",
-    "model": "opencode/glm-4.7-free",
+    "model": "opencode/minimax-m2.1-free",
     "timeout_minutes": 15,
     "output_format": "text"
   },

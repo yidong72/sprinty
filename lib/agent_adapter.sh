@@ -40,7 +40,7 @@ get_agent_model() {
     # Default models based on CLI tool
     case "$cli_tool" in
         opencode)
-            echo "opencode/glm-4.7-free"
+            echo "opencode/minimax-m2.1-free"
             ;;
         cursor-agent)
             echo "opus-4.5-thinking"
@@ -623,6 +623,7 @@ execute_opencode() {
     
     log_status "INFO" "Executing opencode (timeout: ${timeout_seconds}s)..."
     log_debug "Using model: ${AGENT_MODEL}"
+    log_debug "Command: opencode ${cmd_args[*]:0:2} <prompt-content>"
     
     # Execute with timeout (--kill-after ensures SIGKILL if SIGTERM fails)
     timeout --kill-after=30s ${timeout_seconds}s opencode "${cmd_args[@]}" > "$output_file" 2>&1
@@ -755,6 +756,7 @@ check_project_done_from_response() {
 # Returns error if status.json not properly updated by agent
 parse_agent_status_enhanced() {
     local output_file=$1
+    local expected_role=$2  # NEW: expected agent role
     local status_json
     
     # Check status.json exists
@@ -781,6 +783,15 @@ parse_agent_status_enhanced() {
     if [[ -z "$role" || "$role" == "null" ]]; then
         log_status "ERROR" "Agent did not update status.json - role field is empty"
         log_status "ERROR" "Agent MUST update .sprinty/status.json with jq command"
+        echo "{}"
+        return 1
+    fi
+    
+    # NEW: Validate role matches expected agent
+    if [[ -n "$expected_role" && "$role" != "$expected_role" ]]; then
+        log_status "ERROR" "Role mismatch: expected '$expected_role' but got '$role'"
+        log_status "ERROR" "Agent crashed or did not update status.json"
+        log_status "ERROR" "Cannot proceed with stale status from previous phase"
         echo "{}"
         return 1
     fi
@@ -944,7 +955,7 @@ run_agent() {
     
     # Parse and validate response (strict file-based only)
     local status_json
-    status_json=$(parse_agent_status_enhanced "$output_file")
+    status_json=$(parse_agent_status_enhanced "$output_file" "$role")
     local parse_result=$?
     
     if [[ $parse_result -ne 0 || "$status_json" == "{}" ]]; then

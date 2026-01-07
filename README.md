@@ -165,7 +165,7 @@ sudo apt install apptainer
 </tr>
 </table>
 
-> 💡 **Note:** Sprinty supports multiple AI agent backends. By default, it uses **OpenCode** with the free `opencode/glm-4.7-free` model. You can switch to cursor-agent by modifying the configuration.
+> 💡 **Note:** Sprinty supports multiple AI agent backends. By default, it uses **OpenCode** with the free `opencode/minimax-m2.1-free` model. You can switch to cursor-agent by modifying the configuration.
 
 ### Installation
 
@@ -764,7 +764,7 @@ my-project/
   },
   "agent": {
     "cli_tool": "opencode",                // Agent backend: "opencode" or "cursor-agent"
-    "model": "opencode/glm-4.7-free",      // Model to use
+    "model": "opencode/minimax-m2.1-free",      // Model to use
     "timeout_minutes": 15,                  // Timeout for agent execution
     "output_format": "text"                 // Output format
   },
@@ -825,7 +825,7 @@ sprinty run
 {
   "agent": {
     "cli_tool": "opencode",
-    "model": "opencode/glm-4.7-free"
+    "model": "opencode/minimax-m2.1-free"
   }
 }
 ```
@@ -837,7 +837,9 @@ source ~/.bashrc
 ```
 
 **Available Models:**
-- `opencode/glm-4.7-free` - Free, no API key required
+- `opencode/minimax-m2.1-free` - Free, no API key required
+- `opencode/glm-4.7-free` - Alternative free model
+- `opencode/gpt-4o-mini` - Paid, more reliable
 - See [OpenCode documentation](https://opencode.ai/docs) for more models
 
 **Note:** Free model may be less stable than paid options.
@@ -870,7 +872,7 @@ curl https://cursor.com/install -fsS | bash
 |---------|----------|--------------|
 | **Cost** | ✅ Free tier available | 💰 Requires Cursor subscription |
 | **Setup** | Easy (curl install) | Easy (curl install) |
-| **Default Model** | `opencode/glm-4.7-free` | `opus-4.5-thinking` |
+| **Default Model** | `opencode/minimax-m2.1-free` | `opus-4.5-thinking` |
 | **Stability** | ⚠️ May crash (Bun runtime) | ✅ Very stable |
 | **Instruction Following** | ⚠️ Variable (free model) | ✅ Excellent |
 | **Best For** | Testing, experimentation | Production, important projects |
@@ -887,7 +889,7 @@ Customize Sprinty's behavior with these environment variables:
 export AGENT_CLI_TOOL=opencode  # or cursor-agent
 
 # Set agent model (optional, overrides config)
-export AGENT_MODEL="opencode/glm-4.7-free"
+export AGENT_MODEL="opencode/minimax-m2.1-free"
 
 # Set rate limit (default: 100)
 export MAX_CALLS_PER_HOUR=200
