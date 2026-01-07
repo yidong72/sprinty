@@ -37,38 +37,59 @@ The loop continues until all tasks are done or max sprints are reached.
 ### Prerequisites
 
 1. **Bash** >= 4.0
-2. **jq** - JSON processor (required)
-3. **cursor-agent** - Cursor Agent CLI
+2. **jq** - JSON processor (`sudo apt install jq`)
+3. **cursor-agent** - Cursor Agent CLI (`npm install -g @anthropic/cursor-agent`)
 4. **git** - Version control
+5. **Apptainer** - Container runtime (`sudo apt install apptainer`) - *recommended for safe execution*
 
 ### Installation
 
 ```bash
-# Clone the repository
+# Clone and install
 git clone https://github.com/your-username/sprinty.git
 cd sprinty
+./install.sh
 
-# Make executable
+# Or manually
 chmod +x sprinty.sh
-
-# Optional: Add to PATH
 ln -s "$(pwd)/sprinty.sh" /usr/local/bin/sprinty
 ```
 
 ### Basic Usage
 
 ```bash
-# Initialize a new project
-./sprinty.sh init my-project --prd docs/PRD.md
+# 1. Navigate to your project directory
+cd /path/to/your/project
 
-# Run the sprint loop
-./sprinty.sh run
+# 2. Initialize with your PRD
+sprinty init my-project --prd docs/PRD.md
 
-# Check current status
-./sprinty.sh status
+# 3. Run in container sandbox (RECOMMENDED)
+#    --container: runs in isolated Apptainer container
+#    --workspace .: mounts current directory as /workspace in container
+#    --monitor: shows real-time status dashboard
+sprinty --container --workspace . --monitor run
 
-# View metrics dashboard
-./sprinty.sh metrics
+# 4. Check status anytime
+sprinty status
+
+# 5. View metrics
+sprinty metrics
+```
+
+### Why Container Mode?
+
+Running with `--container --workspace .` is **strongly recommended** because:
+- 🛡️ **Safe**: AI agents can't damage your host system
+- 🔧 **Flexible**: Agents can install any packages they need
+- 🗑️ **Clean**: Only your project files persist, everything else resets
+
+```bash
+# First run builds a cached container (2-3 min, one-time)
+# Subsequent runs start instantly!
+
+# Pre-build cache to skip waiting on first run (optional)
+sprinty container build
 ```
 
 ## 📖 CLI Commands
@@ -76,6 +97,9 @@ ln -s "$(pwd)/sprinty.sh" /usr/local/bin/sprinty
 ### Project Initialization
 
 ```bash
+# Navigate to your project directory first
+cd /path/to/your/project
+
 # Initialize with PRD
 sprinty init <project-name> --prd <prd-file>
 
@@ -86,19 +110,25 @@ sprinty init shopping-cart --prd specs/PRD.md
 ### Sprint Execution
 
 ```bash
-# Run in container sandbox (RECOMMENDED for safety)
+# RECOMMENDED: Run in container sandbox with monitoring
 sprinty --container --workspace . --monitor run
 
-# Or with custom container image
-sprinty --container python:3.12 --workspace ~/myproject --monitor run
+# With custom container image (Python, Node, etc.)
+sprinty --container python:3.12 --workspace . --monitor run
+sprinty --container node:20 --workspace ~/myproject --monitor run
 
-# Run without container (use with caution)
+# Run without container (⚠️ use with caution - agents can modify host system)
 sprinty --monitor run
 
 # Check status
 sprinty status
 sprinty status --check-done   # Returns exit code 20 if done
 ```
+
+**Flags explained:**
+- `--container [image]` - Run in Apptainer sandbox (default: `ubuntu:24.04`)
+- `--workspace <path>` - Mount this directory as `/workspace` in container
+- `--monitor` or `-m` - Show real-time tmux dashboard with status and metrics
 
 ### Container Mode (Recommended)
 

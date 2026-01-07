@@ -242,3 +242,84 @@ teardown() {
     [[ "$content" == *"ln -sf"* ]]
     [[ "$content" == *"/usr/local/bin/cursor-agent"* ]]
 }
+
+# ============================================================================
+# CONTAINER CACHE TESTS
+# ============================================================================
+
+@test "get_cache_filename converts docker image to safe filename" {
+    result=$(get_cache_filename "docker://ubuntu:24.04")
+    [[ "$result" == "ubuntu_24.04.sif" ]]
+    
+    result=$(get_cache_filename "docker://python:3.12-slim")
+    [[ "$result" == "python_3.12-slim.sif" ]]
+    
+    result=$(get_cache_filename "library://myorg/myimage:latest")
+    [[ "$result" == "myorg_myimage_latest.sif" ]]
+}
+
+@test "get_cached_container returns empty if no cache exists" {
+    export CONTAINER_CACHE_DIR="$TEST_TEMP_DIR/nonexistent"
+    
+    run get_cached_container "docker://ubuntu:24.04"
+    [[ "$status" -ne 0 ]]
+    [[ -z "$output" ]]
+}
+
+@test "get_cached_container returns path if cache exists" {
+    export CONTAINER_CACHE_DIR="$TEST_TEMP_DIR/cache"
+    mkdir -p "$CONTAINER_CACHE_DIR"
+    touch "$CONTAINER_CACHE_DIR/ubuntu_24.04.sif"
+    
+    result=$(get_cached_container "docker://ubuntu:24.04")
+    [[ "$result" == "$CONTAINER_CACHE_DIR/ubuntu_24.04.sif" ]]
+}
+
+@test "list_cached_containers shows no cache message when empty" {
+    export CONTAINER_CACHE_DIR="$TEST_TEMP_DIR/empty-cache"
+    
+    run list_cached_containers
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"No cached containers"* ]]
+}
+
+@test "list_cached_containers shows cached files" {
+    export CONTAINER_CACHE_DIR="$TEST_TEMP_DIR/cache"
+    mkdir -p "$CONTAINER_CACHE_DIR"
+    touch "$CONTAINER_CACHE_DIR/ubuntu_24.04.sif"
+    
+    run list_cached_containers
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"ubuntu_24.04.sif"* ]]
+    [[ "$output" == *"Total: 1"* ]]
+}
+
+@test "clear_container_cache removes cached files" {
+    export CONTAINER_CACHE_DIR="$TEST_TEMP_DIR/cache"
+    mkdir -p "$CONTAINER_CACHE_DIR"
+    touch "$CONTAINER_CACHE_DIR/ubuntu_24.04.sif"
+    touch "$CONTAINER_CACHE_DIR/python_3.12.sif"
+    
+    [[ -f "$CONTAINER_CACHE_DIR/ubuntu_24.04.sif" ]]
+    
+    clear_container_cache
+    
+    [[ ! -f "$CONTAINER_CACHE_DIR/ubuntu_24.04.sif" ]]
+    [[ ! -f "$CONTAINER_CACHE_DIR/python_3.12.sif" ]]
+}
+
+@test "CONTAINER_CACHE_DIR defaults to ~/.local/share/sprinty/containers" {
+    # Re-source to get default value
+    unset SPRINTY_CONTAINER_CACHE
+    unset CONTAINER_CACHE_DIR
+    source "$PROJECT_ROOT/lib/container.sh"
+    
+    [[ "$CONTAINER_CACHE_DIR" == "$HOME/.local/share/sprinty/containers" ]]
+}
+
+@test "CONTAINER_CACHE_DIR respects SPRINTY_CONTAINER_CACHE env var" {
+    export SPRINTY_CONTAINER_CACHE="/custom/cache/dir"
+    source "$PROJECT_ROOT/lib/container.sh"
+    
+    [[ "$CONTAINER_CACHE_DIR" == "/custom/cache/dir" ]]
+}
