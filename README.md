@@ -86,16 +86,45 @@ sprinty init shopping-cart --prd specs/PRD.md
 ### Sprint Execution
 
 ```bash
-# Run with tmux monitoring dashboard (recommended)
-sprinty --monitor run
+# Run in container sandbox (RECOMMENDED for safety)
+sprinty --container --workspace . --monitor run
 
-# Or run without monitoring
-sprinty run
+# Or with custom container image
+sprinty --container python:3.12 --workspace ~/myproject --monitor run
+
+# Run without container (use with caution)
+sprinty --monitor run
 
 # Check status
 sprinty status
 sprinty status --check-done   # Returns exit code 20 if done
 ```
+
+### Container Mode (Recommended)
+
+Running Sprinty in a container sandbox protects your host system:
+
+```bash
+# Basic containerized execution
+sprinty --container --workspace /path/to/project run
+
+# With custom Ubuntu version
+sprinty --container ubuntu:22.04 --workspace . run
+
+# With Python environment
+sprinty --container python:3.12 --workspace . --monitor run
+
+# With Node.js environment
+sprinty --container node:20 --workspace . run
+```
+
+**Benefits of container mode:**
+- 🛡️ Host system protected from destructive operations
+- 🔧 AI agents can install any packages (apt, pip, npm)
+- 🗑️ Agents can safely delete/modify files
+- 🔄 Container resets on restart (only /workspace persists)
+
+**Requirements:** Apptainer (`sudo apt install apptainer`)
 
 ### Backlog Management
 

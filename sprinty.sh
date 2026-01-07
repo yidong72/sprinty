@@ -39,6 +39,7 @@ source "$SCRIPT_DIR/lib/sprint_manager.sh"
 source "$SCRIPT_DIR/lib/agent_adapter.sh"
 source "$SCRIPT_DIR/lib/done_detector.sh"
 source "$SCRIPT_DIR/lib/metrics_collector.sh"
+source "$SCRIPT_DIR/lib/container.sh"
 
 # ============================================================================
 # CONFIGURATION
@@ -621,7 +622,7 @@ show_help() {
     cat << 'HELPEOF'
 Sprinty - Sprint-based Software Development Orchestrator
 
-Usage: sprinty <command> [options]
+Usage: sprinty [global-options] <command> [options]
 
 Commands:
     init <project> [--prd <file>]   Initialize new project
@@ -631,7 +632,7 @@ Commands:
     backlog add <title> [options]    Add backlog item
     metrics                          Show sprint metrics
 
-Options:
+Global Options:
     -h, --help              Show this help message
     -v, --version           Show version
     --model <model>         Set AI model (default: opus-4.5-thinking)
@@ -640,23 +641,44 @@ Options:
     --reset-rate-limit      Reset rate limiter
     --calls <num>           Set max calls per hour
 
+Container Options (Recommended for Safety):
+    --container [image]     Run in Apptainer sandbox (default: docker://ubuntu:24.04)
+    --workspace <path>      Host directory to mount as /workspace (default: current dir)
+
 Available Models:
     opus-4.5-thinking, opus-4.5, sonnet-4.5-thinking, sonnet-4.5,
     opus-4.1, gemini-3-pro, gemini-3-flash, gpt-5.2, gpt-5.1, grok, auto
 
 Examples:
+    # Basic usage
     sprinty init my-project --prd docs/PRD.md
-    sprinty run
-    sprinty --monitor run                    # Launch with tmux dashboard
-    sprinty --model sonnet-4.5 --monitor run # With custom model
+    sprinty --monitor run
+
+    # Containerized (RECOMMENDED for safety)
+    sprinty --container --workspace ~/myproject run
+    sprinty --container docker://python:3.12 --workspace . --monitor run
+
+    # Other commands
     sprinty status --check-done
     sprinty backlog list
-    sprinty backlog add "Implement login" --type feature --points 5
+
+Container Mode:
+    When using --container, Sprinty runs inside an Apptainer sandbox where:
+    - AI agents have full root access inside the container
+    - Agents can install any packages (apt, pip, npm)
+    - Agents can modify/delete any files in /workspace
+    - Changes outside /workspace are temporary
+    - Host system is protected from destructive operations
+    - cursor-agent is automatically mounted from host (no install needed)
+
+    Requires: Apptainer (install: sudo apt install apptainer)
 
 Environment Variables:
     CURSOR_MODEL                AI model to use
     MAX_CALLS_PER_HOUR          Rate limit (default: 100)
     SPRINTY_MONITOR_REFRESH     Monitor refresh interval in seconds (default: 5)
+    SPRINTY_CONTAINER_IMAGE     Default container image
+    SPRINTY_IN_CONTAINER        Set automatically when running in container
 
 Exit Codes:
     0   - Success
@@ -815,25 +837,63 @@ launch_monitor() {
 main() {
     # Parse global options first
     local monitor_mode=false
+    local container_mode=false
+    local container_image="docker://ubuntu:24.04"
+    local workspace_path="$(pwd)"
+    local passthrough_args=()
+    
     while [[ $# -gt 0 ]]; do
         case $1 in
             --model)
                 export CURSOR_MODEL="$2"
+                passthrough_args+=("--model" "$2")
                 shift 2
                 ;;
             --calls)
                 export MAX_CALLS_PER_HOUR="$2"
+                passthrough_args+=("--calls" "$2")
                 shift 2
                 ;;
             --monitor|-m)
                 monitor_mode=true
+                passthrough_args+=("--monitor")
                 shift
+                ;;
+            --container)
+                container_mode=true
+                # Check if next arg is an image (not another flag or command)
+                if [[ $# -gt 1 && "$2" != -* && "$2" != "run" && "$2" != "init" && "$2" != "status" && "$2" != "backlog" && "$2" != "metrics" ]]; then
+                    container_image="$2"
+                    # Add docker:// prefix if not present
+                    if [[ "$container_image" != docker://* && "$container_image" != library://* && "$container_image" != shub://* ]]; then
+                        container_image="docker://$container_image"
+                    fi
+                    shift 2
+                else
+                    shift
+                fi
+                ;;
+            --workspace)
+                workspace_path="$2"
+                shift 2
                 ;;
             *)
                 break
                 ;;
         esac
     done
+    
+    # If container mode, launch everything in container
+    if [[ "$container_mode" == "true" ]]; then
+        # Don't recurse if already in container
+        if [[ "$SPRINTY_IN_CONTAINER" == "true" ]]; then
+            log_status "INFO" "Already running in container"
+        else
+            log_status "INFO" "Launching Sprinty in container sandbox..."
+            launch_container "$container_image" "$workspace_path" "${passthrough_args[@]}" "$@"
+            exit $?
+        fi
+    fi
     
     local command=${1:-""}
     shift 2>/dev/null || true

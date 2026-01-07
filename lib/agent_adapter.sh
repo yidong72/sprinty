@@ -224,9 +224,16 @@ generate_prompt() {
     local base_prompt
     base_prompt=$(cat "$base_prompt_file")
     
+    # Get container additions if in container mode
+    local container_additions=""
+    if [[ "$SPRINTY_IN_CONTAINER" == "true" ]]; then
+        container_additions=$(get_container_prompt_additions 2>/dev/null || echo "")
+    fi
+    
     # Add dynamic context
     cat > "$output_prompt_file" << EOF
 $base_prompt
+$container_additions
 
 ---
 
@@ -236,6 +243,7 @@ $base_prompt
 - **Phase**: $phase
 - **Role**: $role
 - **Timestamp**: $(get_iso_timestamp)
+- **Environment**: ${SPRINTY_IN_CONTAINER:+Container (sandbox mode)}${SPRINTY_IN_CONTAINER:-Host}
 
 ### Session Context
 \`\`\`json
