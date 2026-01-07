@@ -139,6 +139,15 @@ elif [[ -d "/host-bin" && -f "/host-bin/cursor-agent" ]]; then
     echo "Linked cursor-agent from /host-bin"
 fi
 
+# Setup cursor auth credentials
+if [[ -f "/root/.config/cursor/auth.json" ]]; then
+    echo "✓ Cursor credentials mounted from host"
+else
+    # Create config directory for potential manual auth
+    mkdir -p /root/.config/cursor
+    echo "⚠ No cursor credentials found - may need to run: cursor-agent auth login"
+fi
+
 # Verify cursor-agent is available
 if command -v cursor-agent &> /dev/null; then
     echo "✓ cursor-agent available: $(which cursor-agent)"
@@ -286,6 +295,32 @@ launch_container() {
         fi
     fi
     
+    # Mount cursor auth credentials if they exist
+    local cursor_auth_file="$HOME/.config/cursor/auth.json"
+    if [[ -f "$cursor_auth_file" ]]; then
+        # Create the config directory structure in container
+        bind_opts+=("--bind" "$cursor_auth_file:/root/.config/cursor/auth.json:ro")
+        log_status "INFO" "  Cursor auth: $cursor_auth_file → /root/.config/cursor/auth.json"
+    fi
+    
+    # Also mount cursor-server data for additional auth tokens
+    local cursor_server_dir="$HOME/.cursor-server"
+    if [[ -d "$cursor_server_dir" ]]; then
+        bind_opts+=("--bind" "$cursor_server_dir:/root/.cursor-server:ro")
+        log_status "INFO" "  Cursor server: $cursor_server_dir → /root/.cursor-server"
+    fi
+    
+    # Mount user config files if they exist
+    if [[ -f "$HOME/.gitconfig" ]]; then
+        bind_opts+=("--bind" "$HOME/.gitconfig:/root/.gitconfig:ro")
+        log_status "INFO" "  Git config: ~/.gitconfig → /root/.gitconfig"
+    fi
+    
+    if [[ -f "$HOME/.tmux.conf" ]]; then
+        bind_opts+=("--bind" "$HOME/.tmux.conf:/root/.tmux.conf:ro")
+        log_status "INFO" "  Tmux config: ~/.tmux.conf → /root/.tmux.conf"
+    fi
+    
     # Pass through important environment variables
     local env_opts=(
         "--env" "CURSOR_MODEL=${CURSOR_MODEL:-opus-4.5-thinking}"
@@ -303,12 +338,20 @@ launch_container() {
     log_status "SUCCESS" "Starting sandboxed Sprinty environment"
     echo ""
     
-    # Run container
+    # Run container with isolation options:
+    # --writable-tmpfs: Allow writes to container filesystem (temporary)
+    # --fakeroot: Run as fake root inside container
+    # --pid: Isolate process namespace
+    # --no-mount home,cwd,tmp: Don't auto-mount host directories (we mount explicitly)
+    # --containall: Full isolation (implies --contain --cleanenv)
+    
     if [[ ${#sprinty_args[@]} -gt 0 ]]; then
         # Run with specific command
         "$container_cmd" exec \
             --writable-tmpfs \
             --fakeroot \
+            --pid \
+            --no-mount home,cwd,tmp \
             "${bind_opts[@]}" \
             "${env_opts[@]}" \
             --pwd "$CONTAINER_WORKSPACE" \
@@ -319,6 +362,8 @@ launch_container() {
         "$container_cmd" exec \
             --writable-tmpfs \
             --fakeroot \
+            --pid \
+            --no-mount home,cwd,tmp \
             "${bind_opts[@]}" \
             "${env_opts[@]}" \
             --pwd "$CONTAINER_WORKSPACE" \
