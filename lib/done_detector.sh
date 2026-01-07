@@ -166,9 +166,9 @@ analyze_output_for_completion() {
     
     local signals_found=0
     
-    # Check for PROJECT_DONE: true in SPRINTY_STATUS block
-    if grep -q "PROJECT_DONE:.*true" "$output_file" 2>/dev/null; then
-        record_done_signal "$loop_number" "sprinty_status_block"
+    # Check for PROJECT_DONE: true (enhanced check - file-based with text fallback)
+    if check_project_done_enhanced "$output_file"; then
+        record_done_signal "$loop_number" "project_done_signal"
         signals_found=$((signals_found + 1))
     fi
     
@@ -179,7 +179,7 @@ analyze_output_for_completion() {
     # Keyword matching is unreliable and causes false positives (e.g., "Sprint 1 complete"
     # being interpreted as "project complete"). Instead, we rely on:
     # 1. Actual backlog state (check_backlog_completion) - most reliable
-    # 2. Explicit PROJECT_DONE: true signal from agent
+    # 2. Explicit PROJECT_DONE: true signal from agent (via status.json or text)
     # 3. Idle loop detection (no progress being made)
     
     # Detect test-only loop patterns

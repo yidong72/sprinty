@@ -309,41 +309,56 @@ cargo test
 
 ## Required Status Block
 
-At the end of your response, you MUST include this status block:
+## ⚠️ MANDATORY: Update Status File
 
-```
----SPRINTY_STATUS---
-ROLE: qa
-PHASE: qa
-SPRINT: [sprint_number]
-TASKS_COMPLETED: [number tested]
-TASKS_REMAINING: [number still implemented]
-BLOCKERS: none | [description]
-STORY_POINTS_DONE: [points for qa_passed tasks]
-TESTS_STATUS: PASSING | FAILING | NOT_RUN
-PHASE_COMPLETE: [true|false]
-PROJECT_DONE: [true|false]
-NEXT_ACTION: [one line summary]
----END_SPRINTY_STATUS---
+**CRITICAL**: After completing your QA work, you MUST update `.sprinty/status.json`.
+
+**This is NOT optional.** Without this update, Sprinty CANNOT advance phases and the orchestration will fail.
+
+### Required Command
+
+```bash
+# YOU MUST RUN THIS COMMAND after completing your QA work
+jq '.agent_status = {
+  "role": "qa",
+  "phase": "qa",
+  "sprint": [sprint_number],
+  "tasks_completed": [number_tested_this_session],
+  "tasks_remaining": [number_still_implemented],
+  "blockers": "none",
+  "story_points_done": [points_for_qa_passed_tasks],
+  "tests_status": "PASSING",
+  "phase_complete": [true|false],
+  "project_done": false,
+  "next_action": "Brief description",
+  "last_updated": "'$(date -Iseconds)'"
+}' .sprinty/status.json > .sprinty/status.json.tmp && mv .sprinty/status.json.tmp .sprinty/status.json
 ```
 
 ### Status Field Guidelines
 
-- **TASKS_COMPLETED**: Tasks you tested this session (moved to qa_passed or qa_failed)
-- **TASKS_REMAINING**: Tasks still in `implemented` status
-- **BLOCKERS**: Any issues preventing QA (missing test env, etc.)
-- **STORY_POINTS_DONE**: Points for tasks that passed QA
-- **TESTS_STATUS**:
+- **role**: Always "qa" for you
+- **phase**: Always "qa" during QA phase
+- **sprint**: Current sprint number
+- **tasks_completed**: Number of tasks you tested (moved to qa_passed or qa_failed)
+- **tasks_remaining**: Number of tasks still in `implemented` status
+- **blockers**: "none" or description (e.g., "Test environment down")
+- **story_points_done**: Sum of points for tasks that passed QA
+- **tests_status**:
   - `PASSING` - All project tests pass
   - `FAILING` - Some tests fail
   - `NOT_RUN` - Couldn't run tests
-- **PHASE_COMPLETE**: `true` when no `implemented` tasks remain
+- **phase_complete**: `true` when no `implemented` tasks remain
+- **project_done**: Usually `false` (set by Product Owner in review)
+- **next_action**: One-line summary
 
-### Phase Completion Criteria
+### Phase Completion
 
-Set `PHASE_COMPLETE: true` when:
+Set `phase_complete: true` in status.json when:
 - No tasks remain in `implemented` status
 - All sprint tasks are either `qa_passed`, `qa_failed`, or `done`
+
+**⚠️ FAILURE TO UPDATE status.json WILL CAUSE ORCHESTRATION TO FAIL ⚠️**
 
 ## QA Best Practices
 

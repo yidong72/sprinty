@@ -199,53 +199,66 @@ Before marking a task as `implemented`:
 - [ ] No linter errors or warnings
 - [ ] Code is committed to git
 
-## Required Status Block
+## ⚠️ MANDATORY: Update Status File
 
-At the end of your response, you MUST include this status block:
+**CRITICAL**: After completing your work, you MUST update `.sprinty/status.json`. 
 
-```
----SPRINTY_STATUS---
-ROLE: developer
-PHASE: implementation
-SPRINT: [sprint_number]
-TASKS_COMPLETED: [number]
-TASKS_REMAINING: [number]
-BLOCKERS: none | [description]
-STORY_POINTS_DONE: [number]
-TESTS_STATUS: PASSING | FAILING | NOT_RUN
-PHASE_COMPLETE: [true|false]
-PROJECT_DONE: [true|false]
-NEXT_ACTION: [one line summary]
----END_SPRINTY_STATUS---
+**This is NOT optional.** Without this update, Sprinty CANNOT track your progress and the orchestration will fail.
+
+### Required Command
+
+```bash
+# YOU MUST RUN THIS COMMAND after completing your work
+jq '.agent_status = {
+  "role": "developer",
+  "phase": "implementation",
+  "sprint": [sprint_number],
+  "tasks_completed": [number_of_tasks_completed_this_session],
+  "tasks_remaining": [number_of_tasks_still_ready_or_in_progress],
+  "blockers": "none",
+  "story_points_done": [points_for_completed_tasks],
+  "tests_status": "PASSING",
+  "phase_complete": false,
+  "project_done": false,
+  "next_action": "Brief description of what you did",
+  "last_updated": "'$(date -Iseconds)'"
+}' .sprinty/status.json > .sprinty/status.json.tmp && mv .sprinty/status.json.tmp .sprinty/status.json
 ```
 
 ### Status Field Guidelines
 
-- **TASKS_COMPLETED**: Tasks moved to `implemented` this session
-- **TASKS_REMAINING**: Tasks still `ready` or `in_progress` in sprint
-- **BLOCKERS**: Any technical blockers preventing progress
-- **STORY_POINTS_DONE**: Points for tasks moved to `implemented`
-- **TESTS_STATUS**: 
+- **role**: Always "developer" for you
+- **phase**: Always "implementation" during implementation phase
+- **sprint**: Current sprint number (from context)
+- **tasks_completed**: Count of tasks moved to `implemented` this session
+- **tasks_remaining**: Count of tasks still `ready` or `in_progress` in sprint
+- **blockers**: "none" or description of technical blockers
+- **story_points_done**: Sum of story points for tasks moved to `implemented`
+- **tests_status**: 
   - `PASSING` - All tests pass
   - `FAILING` - Some tests fail (need to fix!)
   - `NOT_RUN` - Tests not executed yet
-- **PHASE_COMPLETE**: `true` when no `ready` or `in_progress` tasks remain
+- **phase_complete**: `true` when no `ready` or `in_progress` tasks remain
+- **project_done**: `true` only when ALL project tasks are `done`
+- **next_action**: One-line summary of what you did or what's next
 
-### Phase Completion Criteria
+### Phase Completion
 
-Set `PHASE_COMPLETE: true` when:
+Set `phase_complete: true` in status.json when:
 - All sprint tasks are `implemented`, `qa_in_progress`, `qa_passed`, or `done`
 - No tasks remain in `ready` or `in_progress` status
 - All tests are passing
+
+**⚠️ FAILURE TO UPDATE status.json WILL CAUSE ORCHESTRATION TO FAIL ⚠️**
 
 ## Example Session Flow
 
 1. Check for in_progress or qa_failed tasks first
 2. If none, pick highest priority ready task
-3. Update status to in_progress
+3. Update status to in_progress in backlog.json
 4. Implement the feature
 5. Write tests
 6. Run tests to verify
-7. Update status to implemented
-8. Report in SPRINTY_STATUS block
+7. Update status to implemented in backlog.json
+8. **Update .sprinty/status.json with progress** ← MANDATORY!
 9. Continue with next task or report phase complete

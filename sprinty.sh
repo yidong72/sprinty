@@ -139,6 +139,34 @@ update_status() {
     
     local calls_made=$(get_call_count)
     
+    # Preserve existing agent_status if it exists
+    local existing_agent_status="{}"
+    if [[ -f "$STATUS_FILE" ]]; then
+        existing_agent_status=$(jq '.agent_status // {}' "$STATUS_FILE" 2>/dev/null || echo "{}")
+    fi
+    
+    # If agent_status is empty (not yet initialized), create default
+    if [[ "$existing_agent_status" == "{}" || "$existing_agent_status" == "null" ]]; then
+        existing_agent_status=$(cat << AGENTEOF
+{
+  "role": "",
+  "phase": "$phase",
+  "sprint": $sprint,
+  "tasks_completed": 0,
+  "tasks_remaining": 0,
+  "blockers": "none",
+  "story_points_done": 0,
+  "tests_status": "NOT_RUN",
+  "phase_complete": false,
+  "project_done": false,
+  "next_action": "",
+  "last_updated": "$(get_iso_timestamp)"
+}
+AGENTEOF
+)
+    fi
+    
+    # Create status.json preserving agent_status
     cat > "$STATUS_FILE" << STATUSEOF
 {
     "version": "$VERSION",
@@ -150,7 +178,8 @@ update_status() {
     "max_calls_per_hour": $MAX_CALLS_PER_HOUR,
     "status": "$status",
     "exit_reason": "$exit_reason",
-    "next_reset": "$(get_next_hour_time)"
+    "next_reset": "$(get_next_hour_time)",
+    "agent_status": $existing_agent_status
 }
 STATUSEOF
 }
@@ -238,16 +267,16 @@ execute_phase() {
                 if [[ -n "$output_file" && -f "$output_file" ]]; then
                     analyze_output_for_completion "$output_file" "$global_loop_count"
                     
-                    # Check for PROJECT_DONE signal
-                    if check_project_done_from_response "$output_file"; then
-                        log_status "SUCCESS" "Agent reported PROJECT_DONE"
+                    # Check for PROJECT_DONE signal from status.json
+                    if check_project_done_enhanced "$output_file"; then
+                        log_status "SUCCESS" "Agent reported PROJECT_DONE (from status.json)"
                         mark_project_done
                         return 0
                     fi
                     
-                    # Check for phase completion
-                    if check_phase_complete_from_response "$output_file"; then
-                        log_status "SUCCESS" "Phase complete (agent signal)"
+                    # Check for phase completion from status.json
+                    if check_phase_complete_enhanced "$output_file"; then
+                        log_status "SUCCESS" "Phase complete (from status.json)"
                         return 0
                     fi
                     

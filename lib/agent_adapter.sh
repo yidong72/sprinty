@@ -748,6 +748,88 @@ check_project_done_from_response() {
 }
 
 # ============================================================================
+# STRICT FILE-BASED STATUS EXTRACTION (No fallback)
+# ============================================================================
+
+# Parse agent status from status.json ONLY
+# Returns error if status.json not properly updated by agent
+parse_agent_status_enhanced() {
+    local output_file=$1
+    local status_json
+    
+    # Check status.json exists
+    local status_file=$(get_agent_status_file)
+    if [[ ! -f "$status_file" ]]; then
+        log_status "ERROR" "status.json not found at $status_file"
+        echo "{}"
+        return 1
+    fi
+    
+    # Get status from file
+    status_json=$(get_agent_status_json)
+    
+    if [[ "$status_json" == "{}" || "$status_json" == "null" ]]; then
+        log_status "ERROR" "agent_status section missing in status.json"
+        echo "{}"
+        return 1
+    fi
+    
+    # Check if agent actually updated it (role should not be empty)
+    local role=$(echo "$status_json" | jq -r '.role // ""')
+    local last_updated=$(echo "$status_json" | jq -r '.last_updated // ""')
+    
+    if [[ -z "$role" || "$role" == "null" ]]; then
+        log_status "ERROR" "Agent did not update status.json - role field is empty"
+        log_status "ERROR" "Agent MUST update .sprinty/status.json with jq command"
+        echo "{}"
+        return 1
+    fi
+    
+    if [[ -z "$last_updated" || "$last_updated" == "null" ]]; then
+        log_status "WARN" "status.json last_updated field is empty (agent may not have updated it)"
+    fi
+    
+    log_status "SUCCESS" "Status extracted from status.json (role: $role)"
+    echo "$status_json"
+    return 0
+}
+
+# Strict phase complete check (file-based only)
+check_phase_complete_enhanced() {
+    local output_file=$1
+    
+    # Only check status.json
+    if is_phase_complete_from_status; then
+        log_status "INFO" "Phase complete detected from status.json"
+        return 0
+    fi
+    
+    log_debug "Phase not complete (status.json: phase_complete=false)"
+    return 1
+}
+
+# Strict project done check (file-based + backlog verification)
+check_project_done_enhanced() {
+    local output_file=$1
+    
+    # Check status.json
+    if is_project_done_from_status; then
+        log_status "INFO" "Project done detected from status.json"
+        return 0
+    fi
+    
+    # Also check backlog completion as safety check
+    # (This is a hard verification, not a fallback)
+    if is_project_done; then
+        log_status "INFO" "Project done verified from backlog completion (all tasks done)"
+        return 0
+    fi
+    
+    log_debug "Project not done"
+    return 1
+}
+
+# ============================================================================
 # ERROR DETECTION
 # ============================================================================
 
@@ -860,16 +942,25 @@ run_agent() {
         return 1
     fi
     
-    # Parse and validate response
+    # Parse and validate response (strict file-based only)
     local status_json
-    status_json=$(parse_sprinty_status_to_json "$output_file")
+    status_json=$(parse_agent_status_enhanced "$output_file")
+    local parse_result=$?
     
-    if [[ "$status_json" == "{}" ]]; then
-        log_status "WARN" "No SPRINTY_STATUS block found in response"
-    else
-        log_status "SUCCESS" "Agent completed successfully"
-        log_debug "Status: $status_json"
+    if [[ $parse_result -ne 0 || "$status_json" == "{}" ]]; then
+        log_status "ERROR" "Agent did not update status.json properly"
+        log_status "ERROR" "Agent MUST update .sprinty/status.json with the jq command from prompts"
+        log_status "ERROR" "This is a REQUIRED step for Sprinty orchestration"
+        
+        # Store latest output file path
+        echo "$output_file" > "$AGENT_OUTPUT_DIR/.last_output"
+        
+        # Return error to indicate agent failed to follow instructions
+        return 1
     fi
+    
+    log_status "SUCCESS" "Agent completed and updated status.json"
+    log_debug "Status: $status_json"
     
     # Store latest output file path
     echo "$output_file" > "$AGENT_OUTPUT_DIR/.last_output"
@@ -985,8 +1076,11 @@ export -f generate_context_json
 export -f extract_sprinty_status
 export -f get_sprinty_status_field
 export -f parse_sprinty_status_to_json
+export -f parse_agent_status_enhanced
 export -f check_phase_complete_from_response
 export -f check_project_done_from_response
+export -f check_phase_complete_enhanced
+export -f check_project_done_enhanced
 export -f detect_rate_limit_error
 export -f detect_auth_error
 export -f detect_permission_error

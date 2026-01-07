@@ -683,6 +683,164 @@ show_backlog_summary() {
 }
 
 # ============================================================================
+# AGENT STATUS MANAGEMENT (status.json)
+# ============================================================================
+
+# Get agent status file path
+get_agent_status_file() {
+    echo "${SPRINTY_DIR:-.sprinty}/status.json"
+}
+
+# Initialize agent status in status.json if not present
+init_agent_status() {
+    local status_file=$(get_agent_status_file)
+    local sprinty_dir=$(dirname "$status_file")
+    
+    # Ensure .sprinty directory exists
+    mkdir -p "$sprinty_dir"
+    
+    # Create status file if it doesn't exist
+    if [[ ! -f "$status_file" ]]; then
+        cat > "$status_file" << 'EOF'
+{
+  "version": "0.1.0",
+  "agent_status": {
+    "role": "",
+    "phase": "",
+    "sprint": 0,
+    "tasks_completed": 0,
+    "tasks_remaining": 0,
+    "blockers": "none",
+    "story_points_done": 0,
+    "tests_status": "NOT_RUN",
+    "phase_complete": false,
+    "project_done": false,
+    "next_action": "",
+    "last_updated": ""
+  }
+}
+EOF
+        log_status "INFO" "Created status.json with agent_status"
+        return 0
+    fi
+    
+    # Check if agent_status section exists
+    if ! jq -e '.agent_status' "$status_file" > /dev/null 2>&1; then
+        # Add agent_status section
+        jq '.agent_status = {
+            "role": "",
+            "phase": "",
+            "sprint": 0,
+            "tasks_completed": 0,
+            "tasks_remaining": 0,
+            "blockers": "none",
+            "story_points_done": 0,
+            "tests_status": "NOT_RUN",
+            "phase_complete": false,
+            "project_done": false,
+            "next_action": "",
+            "last_updated": "'$(get_iso_timestamp)'"
+        }' "$status_file" > "${status_file}.tmp" && mv "${status_file}.tmp" "$status_file"
+        
+        log_status "INFO" "Initialized agent_status in status.json"
+    fi
+}
+
+# Update agent status in status.json
+# Usage: update_agent_status field value [field value ...]
+update_agent_status() {
+    local status_file=$(get_agent_status_file)
+    
+    # Ensure file and agent_status section exist
+    init_agent_status
+    
+    if [[ ! -f "$status_file" ]]; then
+        log_status "ERROR" "Status file doesn't exist: $status_file"
+        return 1
+    fi
+    
+    # Build jq update expression
+    local jq_expr='.agent_status.last_updated = "'$(get_iso_timestamp)'"'
+    
+    while [[ $# -gt 0 ]]; do
+        local field=$1
+        local value=$2
+        
+        if [[ -z "$field" || -z "$value" ]]; then
+            break
+        fi
+        
+        # Handle boolean values
+        if [[ "$value" == "true" || "$value" == "false" ]]; then
+            jq_expr="$jq_expr | .agent_status.$field = $value"
+        # Handle numeric values
+        elif [[ "$value" =~ ^[0-9]+$ ]]; then
+            jq_expr="$jq_expr | .agent_status.$field = $value"
+        # Handle string values
+        else
+            jq_expr="$jq_expr | .agent_status.$field = \"$value\""
+        fi
+        
+        shift 2
+    done
+    
+    # Apply updates
+    jq "$jq_expr" "$status_file" > "${status_file}.tmp" && mv "${status_file}.tmp" "$status_file"
+    
+    log_debug "Updated agent_status in status.json"
+}
+
+# Get agent status field from status.json
+# Usage: get_agent_status_field field_name
+get_agent_status_field() {
+    local field=$1
+    local status_file=$(get_agent_status_file)
+    
+    if [[ ! -f "$status_file" ]]; then
+        echo ""
+        return 1
+    fi
+    
+    jq -r ".agent_status.$field // empty" "$status_file" 2>/dev/null || echo ""
+}
+
+# Get full agent status as JSON
+get_agent_status_json() {
+    local status_file=$(get_agent_status_file)
+    
+    if [[ ! -f "$status_file" ]]; then
+        echo "{}"
+        return 1
+    fi
+    
+    jq '.agent_status // {}' "$status_file" 2>/dev/null || echo "{}"
+}
+
+# Check if phase is complete from status.json
+is_phase_complete_from_status() {
+    local status_file=$(get_agent_status_file)
+    
+    if [[ ! -f "$status_file" ]]; then
+        return 1
+    fi
+    
+    local phase_complete=$(jq -r '.agent_status.phase_complete // false' "$status_file" 2>/dev/null)
+    [[ "$phase_complete" == "true" ]]
+}
+
+# Check if project is done from status.json
+is_project_done_from_status() {
+    local status_file=$(get_agent_status_file)
+    
+    if [[ ! -f "$status_file" ]]; then
+        return 1
+    fi
+    
+    local project_done=$(jq -r '.agent_status.project_done // false' "$status_file" 2>/dev/null)
+    [[ "$project_done" == "true" ]]
+}
+
+# ============================================================================
 # EXPORT FUNCTIONS
 # ============================================================================
 
@@ -716,3 +874,12 @@ export -f get_subtasks
 export -f update_parent_status
 export -f list_backlog
 export -f show_backlog_summary
+
+# Agent status management
+export -f get_agent_status_file
+export -f init_agent_status
+export -f update_agent_status
+export -f get_agent_status_field
+export -f get_agent_status_json
+export -f is_phase_complete_from_status
+export -f is_project_done_from_status

@@ -36,11 +36,20 @@ assert_not_equal() {
 }
 
 assert_output() {
-    local expected="$1"
-    if [ "$output" != "$expected" ]; then
-        echo "Expected output: '$expected'"
-        echo "Actual output: '$output'"
-        return 1
+    if [ "$1" == "--partial" ]; then
+        local expected="$2"
+        if [[ "$output" != *"$expected"* ]]; then
+            echo "Expected output to contain: '$expected'"
+            echo "Actual output: '$output'"
+            return 1
+        fi
+    else
+        local expected="$1"
+        if [ "$output" != "$expected" ]; then
+            echo "Expected output: '$expected'"
+            echo "Actual output: '$output'"
+            return 1
+        fi
     fi
 }
 
@@ -128,41 +137,51 @@ get_project_root() {
     echo "$(cd "$test_dir/../.." && pwd)"
 }
 
-# Setup function - runs before each test
-setup() {
+# Setup test environment - called by setup() in tests
+setup_test_environment() {
     # Get project root
     export PROJECT_ROOT="$(get_project_root)"
     
     # Create unique temp directory for this test
-    export TEST_TEMP_DIR="$(mktemp -d "${BATS_TEST_TMPDIR}/test.XXXXXX")"
-    cd "$TEST_TEMP_DIR"
+    export TEST_DIR="$(mktemp -d /tmp/sprinty_test_XXXXXX)"
+    export TEST_TEMP_DIR="$TEST_DIR"
+    cd "$TEST_DIR"
     
     # Set up test environment variables
-    export BACKLOG_FILE="backlog.json"
-    export SPRINTY_DIR=".sprinty"
-    export SPRINT_STATE_FILE=".sprinty/sprint_state.json"
-    export RATE_LIMIT_STATE_FILE=".rate_limit_state"
-    export CIRCUIT_BREAKER_STATE_FILE=".circuit_breaker_state"
-    export EXIT_SIGNALS_FILE=".exit_signals"
+    export BACKLOG_FILE="$TEST_DIR/backlog.json"
+    export SPRINTY_DIR="$TEST_DIR/.sprinty"
+    export STATUS_FILE="$SPRINTY_DIR/status.json"
+    export SPRINT_STATE_FILE="$SPRINTY_DIR/sprint_state.json"
+    export RATE_LIMIT_STATE_FILE="$SPRINTY_DIR/.rate_limit_state"
+    export CIRCUIT_BREAKER_STATE_FILE="$SPRINTY_DIR/.circuit_breaker_state"
+    export EXIT_SIGNALS_FILE="$SPRINTY_DIR/.exit_signals"
     
     # Configuration defaults
     export MAX_CALLS_PER_HOUR=100
     export DEFAULT_MAX_SPRINTS=10
     export DEFAULT_CAPACITY=20
+    export VERSION="0.1.0"
     
     # Create necessary directories
-    mkdir -p "$SPRINTY_DIR" logs
-    
-    # Source test utilities
-    source "$PROJECT_ROOT/lib/utils.sh"
+    mkdir -p "$SPRINTY_DIR" "$TEST_DIR/logs"
 }
 
-# Teardown function - runs after each test
-teardown() {
+# Cleanup test environment - called by teardown() in tests
+cleanup_test_environment() {
     # Clean up temp directory
-    if [[ -n "$TEST_TEMP_DIR" && -d "$TEST_TEMP_DIR" ]]; then
-        rm -rf "$TEST_TEMP_DIR"
+    if [[ -n "$TEST_DIR" && -d "$TEST_DIR" ]]; then
+        rm -rf "$TEST_DIR"
     fi
+}
+
+# Setup function - runs before each test (for compatibility)
+setup() {
+    setup_test_environment
+}
+
+# Teardown function - runs after each test (for compatibility)
+teardown() {
+    cleanup_test_environment
 }
 
 # ============================================================================

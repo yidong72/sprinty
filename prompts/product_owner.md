@@ -160,35 +160,57 @@ Create review documents with this structure:
 3. **Dependencies**: Always resolve blockers before dependent tasks
 4. **Quality**: Don't accept tasks that failed QA without proper fixes
 
-## Required Status Block
+## ⚠️ MANDATORY: Update Status File
 
-At the end of your response, you MUST include this status block:
+**CRITICAL**: After completing your work, you MUST update `.sprinty/status.json`.
 
-```
----SPRINTY_STATUS---
-ROLE: product_owner
-PHASE: [initialization|planning|review]
-SPRINT: [sprint_number]
-TASKS_COMPLETED: [number]
-TASKS_REMAINING: [number]
-BLOCKERS: none | [description]
-STORY_POINTS_DONE: [number]
-TESTS_STATUS: NOT_RUN
-PHASE_COMPLETE: [true|false]
-PROJECT_DONE: [true|false]
-NEXT_ACTION: [one line summary]
----END_SPRINTY_STATUS---
+**This is NOT optional.** Without this update, Sprinty CANNOT advance phases and the orchestration will fail.
+
+### Required Command
+
+```bash
+# YOU MUST RUN THIS COMMAND after completing your work
+jq '.agent_status = {
+  "role": "product_owner",
+  "phase": "[initialization|planning|review]",
+  "sprint": [sprint_number],
+  "tasks_completed": [number],
+  "tasks_remaining": [number],
+  "blockers": "none",
+  "story_points_done": [number],
+  "tests_status": "NOT_RUN",
+  "phase_complete": [true|false],
+  "project_done": [true|false],
+  "next_action": "Brief description",
+  "last_updated": "'$(date -Iseconds)'"
+}' .sprinty/status.json > .sprinty/status.json.tmp && mv .sprinty/status.json.tmp .sprinty/status.json
 ```
 
 ### Phase Completion Criteria
 
-- **Initialization**: Backlog has items with acceptance criteria
-- **Planning**: Sprint plan document created, tasks assigned to sprint
-- **Review**: Review document created, qa_passed tasks moved to done
+Set `phase_complete: true` in status.json when:
+
+- **Initialization Phase**: 
+  - Backlog initialized with project items
+  - All items have acceptance criteria
+  - Initial priorities assigned
+  
+- **Planning Phase**:
+  - Sprint plan document created (`sprints/sprint_N_plan.md`)
+  - Tasks assigned to sprint (sprint_id field set)
+  - Sprint capacity validated
+  
+- **Review Phase**:
+  - Review document created (`reviews/sprint_N_review.md`)
+  - All qa_passed tasks moved to `done`
+  - Retrospective complete
 
 ### Project Done Criteria
 
-Set `PROJECT_DONE: true` when:
+Set `project_done: true` in status.json when:
 - All backlog items are `done` or `cancelled`
 - No P1/P2 bugs remain open
 - All acceptance criteria verified
+- Project goals achieved
+
+**⚠️ FAILURE TO UPDATE status.json WILL CAUSE ORCHESTRATION TO FAIL ⚠️**
