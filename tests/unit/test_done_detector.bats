@@ -26,6 +26,8 @@ setup() {
     # Source the modules under test
     source "$PROJECT_ROOT/lib/utils.sh"
     source "$PROJECT_ROOT/lib/backlog_manager.sh"
+    source "$PROJECT_ROOT/lib/sprint_manager.sh"
+    source "$PROJECT_ROOT/lib/agent_adapter.sh" 2>/dev/null || true  # For check_project_done_enhanced
     source "$PROJECT_ROOT/lib/done_detector.sh"
 }
 
@@ -164,6 +166,11 @@ teardown() {
 
 @test "analyze_output_for_completion ignores PHASE_COMPLETE (not a project completion signal)" {
     init_exit_signals
+    # Create backlog with incomplete task to prevent false positive from backlog state
+    init_backlog "test"
+    add_backlog_item "Task 1" "feature" 1 5
+    # Task stays in "backlog" status (incomplete)
+    
     echo "PHASE_COMPLETE: true" > "output.log"
     
     result=$(analyze_output_for_completion "output.log" 1)
@@ -177,15 +184,15 @@ teardown() {
     init_exit_signals
     init_backlog "test"
     add_backlog_item "Task 1" "feature" 1 5
-    update_item_status "TASK-001" "done"
+    # Keep task in "backlog" status so backlog check doesn't trigger completion
+    # update_item_status "TASK-001" "done"  -- removed to prevent backlog completion
     
-    # Even with "project complete" text and completed backlog,
-    # we don't trust keyword matching - too many false positives
+    # Even with "project complete" text, we don't trust keyword matching
     echo "🎉 Project complete! All tasks done!" > "output.log"
     
     result=$(analyze_output_for_completion "output.log" 1)
     
-    # Should NOT detect any signals from keywords alone
+    # Should NOT detect any signals from keywords alone (backlog has pending tasks)
     [[ $result -eq 0 ]]
 }
 
@@ -193,7 +200,8 @@ teardown() {
     init_exit_signals
     init_backlog "test"
     add_backlog_item "Task 1" "feature" 1 5
-    update_item_status "TASK-001" "done"
+    # Keep task in "backlog" status so backlog check doesn't trigger completion
+    # update_item_status "TASK-001" "done"  -- removed to prevent backlog completion
     
     # Agent saying TASKS_REMAINING: 0 could mean current sprint, not whole project
     # We rely on actual backlog state instead
@@ -201,7 +209,7 @@ teardown() {
     
     result=$(analyze_output_for_completion "output.log" 1)
     
-    # Should NOT detect - we don't trust agent's task count
+    # Should NOT detect - we don't trust agent's task count, and backlog is incomplete
     [[ $result -eq 0 ]]
 }
 
@@ -215,6 +223,10 @@ teardown() {
 
 @test "analyze_output_for_completion returns 0 for empty file" {
     init_exit_signals
+    # Create backlog with incomplete task to prevent false positive
+    init_backlog "test"
+    add_backlog_item "Task 1" "feature" 1 5
+    
     touch "empty.log"
     
     result=$(analyze_output_for_completion "empty.log" 1)
@@ -355,8 +367,12 @@ EOF
 @test "should_exit_gracefully exits on backlog complete" {
     init_exit_signals
     init_backlog "test"
+    init_sprint_state
     add_backlog_item "Task" "feature" 1 5
     update_item_status "TASK-001" "done"
+    
+    # Final QA must be passed for graceful exit on backlog complete
+    jq '.final_qa_status = "passed"' "$SPRINT_STATE_FILE" > tmp && mv tmp "$SPRINT_STATE_FILE"
     
     result=$(should_exit_gracefully)
     
@@ -440,8 +456,12 @@ EOF
 
 @test "is_project_complete returns true when all done" {
     init_backlog "test"
+    init_sprint_state
     add_backlog_item "Task" "feature" 1 5
     update_item_status "TASK-001" "done"
+    
+    # Final QA must be passed for project to be complete
+    jq '.final_qa_status = "passed"' "$SPRINT_STATE_FILE" > tmp && mv tmp "$SPRINT_STATE_FILE"
     
     run is_project_complete
     
