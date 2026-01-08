@@ -526,6 +526,11 @@ resume_sprint() {
         return 20
     fi
     
+    # CRITICAL: Start next sprint to prevent infinite resume loop
+    # After completing a resumed sprint, we need to advance to the next sprint
+    # Otherwise is_resuming_sprint() will return true again in the next iteration
+    start_sprint >/dev/null  # Increment sprint number, suppress echo
+    
     return 0
 }
 
@@ -727,12 +732,15 @@ run_sprinty() {
             break
         fi
         
+        # Capture sprint number BEFORE execution (for logging)
+        local sprint_being_executed=$current_sprint
+        
         execute_sprint
         result=$?
         
         case $result in
             0)
-                log_status "SUCCESS" "Sprint $current_sprint completed"
+                log_status "SUCCESS" "Sprint $sprint_being_executed completed"
                 ;;
             10)
                 log_status "ERROR" "Circuit breaker opened"

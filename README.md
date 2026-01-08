@@ -145,11 +145,11 @@ sudo apt install jq
 
 **AI Agent CLI**
 ```bash
-# Option 1: OpenCode (Recommended, Free)
-curl -fsSL https://opencode.ai/install | bash
-
-# Option 2: Cursor Agent
+# Option 1: Cursor Agent (Recommended)
 curl https://cursor.com/install -fsS | bash
+
+# Option 2: OpenCode (Free Alternative)
+curl -fsSL https://opencode.ai/install | bash
 ```
 
 </td>
@@ -165,7 +165,7 @@ sudo apt install apptainer
 </tr>
 </table>
 
-> 💡 **Note:** Sprinty supports multiple AI agent backends. By default, it uses **OpenCode** with the free `opencode/minimax-m2.1-free` model. You can switch to cursor-agent by modifying the configuration.
+> 💡 **Note:** Sprinty supports multiple AI agent backends. By default, it uses **Cursor-Agent** with the `opus-4.5-thinking` model. You can switch to OpenCode or other backends by modifying the configuration.
 
 ### Installation
 
@@ -797,7 +797,7 @@ sprinty init my-project --prd requirements.txt
 ```
 
 This creates:
-- `.sprinty/config.json` (active config, default: OpenCode)
+- `.sprinty/config.json` (active config, default: Cursor-Agent)
 - `.sprinty/config.cursor_agent.json` (Cursor-Agent template)
 - `.sprinty/config.opencode.json` (OpenCode template)
 
@@ -819,7 +819,7 @@ export SPRINTY_AGENT_CLI=cursor-agent
 sprinty run
 ```
 
-#### Option 1: OpenCode (Default, Free)
+#### Option 2: OpenCode (Free Alternative)
 
 ```json
 {
@@ -844,7 +844,7 @@ source ~/.bashrc
 
 **Note:** Free model may be less stable than paid options.
 
-#### Option 2: Cursor Agent (Recommended for Production)
+#### Option 1: Cursor-Agent (Default)
 
 ```json
 {
@@ -868,16 +868,16 @@ curl https://cursor.com/install -fsS | bash
 
 #### Comparison
 
-| Feature | OpenCode | Cursor Agent |
-|---------|----------|--------------|
-| **Cost** | ✅ Free tier available | 💰 Requires Cursor subscription |
+| Feature | Cursor-Agent | OpenCode |
+|---------|--------------|----------|
+| **Cost** | 💰 Requires Cursor subscription | ✅ Free tier available |
 | **Setup** | Easy (curl install) | Easy (curl install) |
-| **Default Model** | `opencode/minimax-m2.1-free` | `opus-4.5-thinking` |
-| **Stability** | ⚠️ May crash (Bun runtime) | ✅ Very stable |
-| **Instruction Following** | ⚠️ Variable (free model) | ✅ Excellent |
-| **Best For** | Testing, experimentation | Production, important projects |
+| **Default Model** | `opus-4.5-thinking` | `opencode/minimax-m2.1-free` |
+| **Stability** | ✅ Very stable | ⚠️ May crash (Bun runtime) |
+| **Instruction Following** | ✅ Excellent | ⚠️ Variable (free model) |
+| **Best For** | Production, important projects | Testing, experimentation |
 
-**Recommendation:** Use Cursor-Agent for production workloads. The free OpenCode model is good for experimentation but may crash or not follow instructions consistently.
+**Recommendation:** Use Cursor-Agent for production workloads (default). The free OpenCode model is good for experimentation but may crash or not follow instructions consistently.
 ```
 
 ### Environment Variables
@@ -885,8 +885,8 @@ curl https://cursor.com/install -fsS | bash
 Customize Sprinty's behavior with these environment variables:
 
 ```bash
-# Set AI agent backend (default: opencode)
-export AGENT_CLI_TOOL=opencode  # or cursor-agent
+# Set AI agent backend (default: cursor-agent)
+export AGENT_CLI_TOOL=cursor-agent  # or opencode
 
 # Set agent model (optional, overrides config)
 export AGENT_MODEL="opencode/minimax-m2.1-free"
