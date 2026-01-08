@@ -32,9 +32,28 @@ CB_OUTPUT_DECLINE_THRESHOLD=${CB_OUTPUT_DECLINE_THRESHOLD:-70}  # Open if output
 # INITIALIZATION
 # ============================================================================
 
+# Load circuit breaker settings from config
+load_circuit_breaker_config() {
+    local config_file="${SPRINTY_DIR:-${PWD}/.sprinty}/config.json"
+    if [[ -f "$config_file" ]]; then
+        local val
+        val=$(jq -r '.circuit_breaker.no_progress_threshold // empty' "$config_file" 2>/dev/null)
+        [[ -n "$val" && "$val" != "null" ]] && CB_NO_PROGRESS_THRESHOLD=$val
+        
+        val=$(jq -r '.circuit_breaker.same_error_threshold // empty' "$config_file" 2>/dev/null)
+        [[ -n "$val" && "$val" != "null" ]] && CB_SAME_ERROR_THRESHOLD=$val
+        
+        val=$(jq -r '.circuit_breaker.output_decline_threshold // empty' "$config_file" 2>/dev/null)
+        [[ -n "$val" && "$val" != "null" ]] && CB_OUTPUT_DECLINE_THRESHOLD=$val
+    fi
+}
+
 # Initialize circuit breaker state
 init_circuit_breaker() {
     ensure_sprinty_dir
+    
+    # Load settings from config
+    load_circuit_breaker_config
     
     # Check if state file exists and is valid JSON
     if [[ -f "$CB_STATE_FILE" ]]; then

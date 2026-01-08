@@ -187,9 +187,16 @@ start_sprint() {
     local current=$(get_current_sprint)
     local new_sprint=$((current + 1))
     
+    # Read max_sprints from config, fallback to default
+    local config_file="${SPRINTY_DIR:-${PWD}/.sprinty}/config.json"
+    local max_sprints=$DEFAULT_MAX_SPRINTS
+    if [[ -f "$config_file" ]]; then
+        max_sprints=$(jq -r '.sprint.max_sprints // 10' "$config_file" 2>/dev/null || echo "$DEFAULT_MAX_SPRINTS")
+    fi
+    
     # Check max sprints
-    if [[ $new_sprint -gt $DEFAULT_MAX_SPRINTS ]]; then
-        log_status "WARN" "Max sprints reached ($DEFAULT_MAX_SPRINTS)"
+    if [[ $new_sprint -gt $max_sprints ]]; then
+        log_status "WARN" "Max sprints reached ($max_sprints)"
         return 21  # Exit code for max sprints
     fi
     
@@ -240,14 +247,31 @@ increment_rework() {
     local current=$(get_rework_count)
     current=$((current + 1))
     update_sprint_state "rework_count" "$current"
-    log_status "WARN" "Rework cycle: $current/$DEFAULT_MAX_REWORK_CYCLES"
+    
+    # Get max from config for display
+    local config_file="${SPRINTY_DIR:-${PWD}/.sprinty}/config.json"
+    local max_rework=$DEFAULT_MAX_REWORK_CYCLES
+    if [[ -f "$config_file" ]]; then
+        local config_value=$(jq -r '.sprint.max_rework_cycles // empty' "$config_file" 2>/dev/null)
+        [[ -n "$config_value" && "$config_value" != "null" ]] && max_rework=$config_value
+    fi
+    
+    log_status "WARN" "Rework cycle: $current/$max_rework"
     echo "$current"
 }
 
-# Check if rework limit exceeded
+# Check if rework limit exceeded (reads from config.json)
 is_rework_limit_exceeded() {
     local count=$(get_rework_count)
-    [[ $count -ge $DEFAULT_MAX_REWORK_CYCLES ]]
+    local config_file="${SPRINTY_DIR:-${PWD}/.sprinty}/config.json"
+    local max_rework=$DEFAULT_MAX_REWORK_CYCLES
+    
+    if [[ -f "$config_file" ]]; then
+        local config_value=$(jq -r '.sprint.max_rework_cycles // empty' "$config_file" 2>/dev/null)
+        [[ -n "$config_value" && "$config_value" != "null" ]] && max_rework=$config_value
+    fi
+    
+    [[ $count -ge $max_rework ]]
 }
 
 # ============================================================================
@@ -313,17 +337,35 @@ has_tasks_to_rework() {
     [[ $count -gt 0 ]]
 }
 
-# Get max loops for current phase
+# Get max loops for current phase (reads from config.json)
 get_max_loops_for_phase() {
     local phase=${1:-$(get_current_phase)}
+    local config_file="${SPRINTY_DIR:-${PWD}/.sprinty}/config.json"
     
-    case "$phase" in
-        "planning")       echo "$DEFAULT_PLANNING_MAX_LOOPS" ;;
-        "implementation") echo "$DEFAULT_IMPLEMENTATION_MAX_LOOPS" ;;
-        "qa")             echo "$DEFAULT_QA_MAX_LOOPS" ;;
-        "review")         echo "$DEFAULT_REVIEW_MAX_LOOPS" ;;
-        *)                echo "10" ;;
-    esac
+    # Try to read from config, fallback to defaults
+    local value=""
+    if [[ -f "$config_file" ]]; then
+        case "$phase" in
+            "planning")       value=$(jq -r '.sprint.planning_max_loops // empty' "$config_file" 2>/dev/null) ;;
+            "implementation") value=$(jq -r '.sprint.implementation_max_loops // empty' "$config_file" 2>/dev/null) ;;
+            "qa")             value=$(jq -r '.sprint.qa_max_loops // empty' "$config_file" 2>/dev/null) ;;
+            "review")         value=$(jq -r '.sprint.review_max_loops // empty' "$config_file" 2>/dev/null) ;;
+            "final_qa")       value=$(jq -r '.sprint.qa_max_loops // empty' "$config_file" 2>/dev/null) ;;
+        esac
+    fi
+    
+    # Fallback to defaults if config value is empty
+    if [[ -z "$value" || "$value" == "null" ]]; then
+        case "$phase" in
+            "planning")       echo "$DEFAULT_PLANNING_MAX_LOOPS" ;;
+            "implementation") echo "$DEFAULT_IMPLEMENTATION_MAX_LOOPS" ;;
+            "qa"|"final_qa")  echo "$DEFAULT_QA_MAX_LOOPS" ;;
+            "review")         echo "$DEFAULT_REVIEW_MAX_LOOPS" ;;
+            *)                echo "10" ;;
+        esac
+    else
+        echo "$value"
+    fi
 }
 
 # Check if phase loop limit exceeded
@@ -430,13 +472,25 @@ show_sprint_status() {
     local rework=$(get_rework_count)
     local done=$(get_sprint_state "project_done")
     
+    # Get max values from config
+    local config_file="${SPRINTY_DIR:-${PWD}/.sprinty}/config.json"
+    local max_rework=$DEFAULT_MAX_REWORK_CYCLES
+    local max_sprints=$DEFAULT_MAX_SPRINTS
+    if [[ -f "$config_file" ]]; then
+        local config_value=$(jq -r '.sprint.max_rework_cycles // empty' "$config_file" 2>/dev/null)
+        [[ -n "$config_value" && "$config_value" != "null" ]] && max_rework=$config_value
+        
+        config_value=$(jq -r '.sprint.max_sprints // empty' "$config_file" 2>/dev/null)
+        [[ -n "$config_value" && "$config_value" != "null" ]] && max_sprints=$config_value
+    fi
+    
     echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${BLUE}║                    Sprint Status                           ║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
-    echo -e "Current Sprint:    $sprint"
+    echo -e "Current Sprint:    $sprint / $max_sprints"
     echo -e "Current Phase:     $phase"
     echo -e "Phase Loop:        $loop / $(get_max_loops_for_phase)"
-    echo -e "Rework Cycles:     $rework / $DEFAULT_MAX_REWORK_CYCLES"
+    echo -e "Rework Cycles:     $rework / $max_rework"
     echo -e "Project Done:      $done"
     echo ""
     
