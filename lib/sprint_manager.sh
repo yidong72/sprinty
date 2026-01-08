@@ -222,10 +222,14 @@ end_sprint() {
     local sprint=$(get_current_sprint)
     local timestamp=$(get_iso_timestamp)
     
-    # Update sprint history
+    # Update sprint history AND reset phase to "planning"
+    # Resetting phase prevents false resume detection on next iteration
+    # The next execute_sprint() will call start_sprint() which increments sprint number
     jq --argjson sprint "$sprint" --arg ts "$timestamp" --arg status "$status" '
         (.sprints_history[] | select(.sprint == $sprint)).ended_at = $ts |
-        (.sprints_history[] | select(.sprint == $sprint)).status = $status
+        (.sprints_history[] | select(.sprint == $sprint)).status = $status |
+        .current_phase = "planning" |
+        .rework_count = 0
     ' "$SPRINT_STATE_FILE" > "${SPRINT_STATE_FILE}.tmp" && mv "${SPRINT_STATE_FILE}.tmp" "$SPRINT_STATE_FILE"
     
     log_status "SPRINT" "Ended Sprint $sprint ($status)"

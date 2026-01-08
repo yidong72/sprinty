@@ -55,6 +55,56 @@ teardown() {
     assert_equal "$result" "false"
 }
 
+@test "resume: not resuming when sprint already completed in history" {
+    init_sprint_state
+    init_backlog "test-project"
+    
+    # Start Sprint 1
+    start_sprint
+    
+    # Assign tasks to sprint 1 (simulating completed planning)
+    add_backlog_item "Task 1" "feature" 1 3 '["AC1"]'
+    jq '(.items[0]).sprint_id = 1 | (.items[0]).status = "done"' "$BACKLOG_FILE" > tmp && mv tmp "$BACKLOG_FILE"
+    
+    # Mark sprint 1 as completed in history (simulating end_sprint)
+    jq '(.sprints_history[] | select(.sprint == 1)).status = "completed" |
+        .current_phase = "planning"' "$SPRINT_STATE_FILE" > tmp && mv tmp "$SPRINT_STATE_FILE"
+    
+    # Even though current_sprint=1 and tasks are assigned, should NOT resume
+    # because the sprint is marked as "completed" in history
+    local result
+    if is_resuming_sprint; then
+        result="true"
+    else
+        result="false"
+    fi
+    
+    assert_equal "$result" "false"
+}
+
+@test "resume: resuming when sprint in_progress in history" {
+    init_sprint_state
+    init_backlog "test-project"
+    
+    # Start Sprint 1
+    start_sprint
+    
+    # Assign tasks to sprint 1
+    add_backlog_item "Task 1" "feature" 1 3 '["AC1"]'
+    jq '(.items[0]).sprint_id = 1 | (.items[0]).status = "in_progress"' "$BACKLOG_FILE" > tmp && mv tmp "$BACKLOG_FILE"
+    
+    # Sprint 1 is still in_progress in history (default)
+    # Should resume
+    local result
+    if is_resuming_sprint; then
+        result="true"
+    else
+        result="false"
+    fi
+    
+    assert_equal "$result" "true"
+}
+
 @test "resume: resuming on Sprint 1 planning with tasks assigned" {
     init_sprint_state
     init_backlog "test-project"

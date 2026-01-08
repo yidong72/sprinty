@@ -385,6 +385,17 @@ is_resuming_sprint() {
         return 1
     fi
     
+    # Check if current sprint was already completed in history
+    # If completed, we're NOT resuming - we need to start a fresh sprint
+    local sprint_status=$(jq -r --argjson s "$current_sprint" \
+        '(.sprints_history[] | select(.sprint == $s)).status // "not_found"' \
+        "$SPRINT_STATE_FILE" 2>/dev/null || echo "not_found")
+    
+    if [[ "$sprint_status" == "completed" ]]; then
+        log_debug "Sprint $current_sprint already completed - not resuming"
+        return 1
+    fi
+    
     # Resuming if we're in the middle of a phase (not planning)
     if [[ "$current_phase" != "planning" ]]; then
         log_debug "Resume detected: Sprint $current_sprint, Phase $current_phase"
@@ -392,8 +403,8 @@ is_resuming_sprint() {
     fi
     
     # In planning phase - check if it already completed
-    # (tasks were assigned to this sprint)
-    if is_backlog_initialized; then
+    # (tasks were assigned to this sprint AND sprint is still in_progress)
+    if is_backlog_initialized && [[ "$sprint_status" == "in_progress" ]]; then
         local sprint_tasks=$(jq --argjson s "$current_sprint" \
             '[.items[] | select(.sprint_id == $s)] | length' "$BACKLOG_FILE" 2>/dev/null || echo "0")
         
@@ -516,7 +527,8 @@ resume_sprint() {
     local sprint_total_points=$(get_sprint_points "$sprint_id")
     record_sprint_velocity "$sprint_id" "$sprint_done_points" "$sprint_total_points"
     
-    # End sprint
+    # End sprint - marks sprint as "completed" in history and resets phase
+    # The next execute_sprint() will detect completed status and start fresh
     end_sprint "completed"
     
     # Check if project is done
@@ -525,11 +537,6 @@ resume_sprint() {
         mark_project_done
         return 20
     fi
-    
-    # CRITICAL: Start next sprint to prevent infinite resume loop
-    # After completing a resumed sprint, we need to advance to the next sprint
-    # Otherwise is_resuming_sprint() will return true again in the next iteration
-    start_sprint >/dev/null  # Increment sprint number, suppress echo
     
     return 0
 }
@@ -781,7 +788,7 @@ execute_sprint() {
     local sprint_total_points=$(get_sprint_points "$sprint_id")
     record_sprint_velocity "$sprint_id" "$sprint_done_points" "$sprint_total_points"
     
-    # End sprint
+    # End sprint - this also resets phase to "planning" to prevent false resume detection
     end_sprint "completed"
     
     # Check if project is done
@@ -899,15 +906,12 @@ run_sprinty() {
             fi
         fi
         
-        # Capture sprint number BEFORE execution (for logging)
-        local sprint_being_executed=$current_sprint
-        
         execute_sprint
         result=$?
         
         case $result in
             0)
-                log_status "SUCCESS" "Sprint $sprint_being_executed completed"
+                # Sprint completion already logged by end_sprint()
                 ;;
             10)
                 log_status "ERROR" "Circuit breaker opened"
