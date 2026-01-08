@@ -309,8 +309,14 @@ execute_phase() {
                     # Also check status.json for task progress
                     local task_progress=0
                     if [[ -f "$STATUS_FILE" ]]; then
-                        local current_tasks=$(jq '.agent_status.tasks_completed // 0' "$STATUS_FILE" 2>/dev/null || echo 0)
-                        local current_points=$(jq '.agent_status.story_points_done // 0' "$STATUS_FILE" 2>/dev/null || echo 0)
+                        # Use 'select(type=="number")' to ensure we get a number, not an array
+                        local current_tasks=$(jq -r '(.agent_status.tasks_completed // 0) | if type == "array" then .[0] else . end' "$STATUS_FILE" 2>/dev/null || echo 0)
+                        local current_points=$(jq -r '(.agent_status.story_points_done // 0) | if type == "array" then .[0] else . end' "$STATUS_FILE" 2>/dev/null || echo 0)
+                        
+                        # Ensure we have valid numbers
+                        [[ "$current_tasks" =~ ^[0-9]+$ ]] || current_tasks=0
+                        [[ "$current_points" =~ ^[0-9]+$ ]] || current_points=0
+                        
                         if [[ $current_tasks -gt 0 ]] || [[ $current_points -gt 0 ]]; then
                             task_progress=1
                         fi

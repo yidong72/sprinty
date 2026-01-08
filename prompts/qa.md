@@ -322,7 +322,7 @@ cargo test
 jq '.agent_status = {
   "role": "qa",
   "phase": "qa",
-  "sprint": [sprint_number],
+  "sprint": sprint_number,
   "tasks_completed": [number_tested_this_session],
   "tasks_remaining": [number_still_implemented],
   "blockers": "none",

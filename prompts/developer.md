@@ -212,7 +212,7 @@ Before marking a task as `implemented`:
 jq '.agent_status = {
   "role": "developer",
   "phase": "implementation",
-  "sprint": [sprint_number],
+  "sprint": sprint_number,
   "tasks_completed": [number_of_tasks_completed_this_session],
   "tasks_remaining": [number_of_tasks_still_ready_or_in_progress],
   "blockers": "none",

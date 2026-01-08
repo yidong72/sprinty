@@ -173,7 +173,7 @@ Create review documents with this structure:
 jq '.agent_status = {
   "role": "product_owner",
   "phase": "[initialization|planning|review]",
-  "sprint": [sprint_number],
+  "sprint": sprint_number,
   "tasks_completed": [number],
   "tasks_remaining": [number],
   "blockers": "none",
