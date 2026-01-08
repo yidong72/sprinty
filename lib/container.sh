@@ -524,6 +524,19 @@ launch_container() {
         fi
     fi
     
+    # Mount opencode auth/config if they exist
+    local opencode_auth_file="$HOME/.local/share/opencode/auth.json"
+    if [[ -f "$opencode_auth_file" ]]; then
+        bind_opts+=("--bind" "$opencode_auth_file:/root/.local/share/opencode/auth.json:ro")
+        log_status "INFO" "  OpenCode auth: $opencode_auth_file → /root/.local/share/opencode/auth.json"
+    fi
+    
+    local opencode_config_dir="$HOME/.config/opencode"
+    if [[ -d "$opencode_config_dir" ]]; then
+        bind_opts+=("--bind" "$opencode_config_dir:/root/.config/opencode:ro")
+        log_status "INFO" "  OpenCode config: $opencode_config_dir → /root/.config/opencode"
+    fi
+    
     # Mount cursor auth credentials if they exist
     local cursor_auth_file="$HOME/.config/cursor/auth.json"
     if [[ -f "$cursor_auth_file" ]]; then
