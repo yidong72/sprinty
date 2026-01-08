@@ -572,6 +572,132 @@ execute_sprint_zero() {
     return 0
 }
 
+# Execute the Final QA Sprint (comprehensive system testing)
+execute_final_qa_sprint() {
+    local attempt=$(get_final_qa_attempts)
+    local max_attempts=${MAX_FINAL_QA_ATTEMPTS:-3}
+    
+    log_status "SPRINT" "╔══════════════════════════════════════════════════════════════╗"
+    log_status "SPRINT" "║       FINAL QA SPRINT - Comprehensive Testing (Attempt $((attempt + 1))/$max_attempts)    ║"
+    log_status "SPRINT" "╚══════════════════════════════════════════════════════════════╝"
+    
+    # Increment attempt counter
+    increment_final_qa_attempts
+    
+    # Mark Final QA as in progress
+    mark_final_qa_status "in_progress"
+    
+    # Count bugs before Final QA
+    local bugs_before=$(jq '[.items[] | select(.type == "bug" and .status == "backlog")] | length' "$BACKLOG_FILE" 2>/dev/null || echo "0")
+    
+    # Run Final QA with qa role using the final_qa prompt
+    log_status "PHASE" "Running Final QA Sprint (comprehensive system testing)"
+    
+    # Execute Final QA phase
+    execute_phase "final_qa" "qa"
+    local result=$?
+    
+    if [[ $result -eq 3 ]]; then
+        log_status "ERROR" "Final QA Sprint: Circuit breaker triggered"
+        mark_final_qa_status "failed"
+        return 10
+    fi
+    
+    # Count bugs after Final QA
+    local bugs_after=$(jq '[.items[] | select(.type == "bug" and .status == "backlog")] | length' "$BACKLOG_FILE" 2>/dev/null || echo "0")
+    local new_bugs=$((bugs_after - bugs_before))
+    
+    # Check Final QA status from status.json
+    local status_file="${SPRINTY_DIR}/status.json"
+    local qa_result="unknown"
+    if [[ -f "$status_file" ]]; then
+        qa_result=$(jq -r '.agent_status.project_done // false' "$status_file" 2>/dev/null)
+        local bugs_found=$(jq -r '.agent_status.bugs_found // 0' "$status_file" 2>/dev/null)
+        [[ "$bugs_found" != "null" && "$bugs_found" != "0" ]] && new_bugs=$bugs_found
+    fi
+    
+    # Determine Final QA Sprint outcome
+    if [[ "$qa_result" == "true" && $new_bugs -eq 0 ]]; then
+        log_status "SUCCESS" "✅ Final QA Sprint PASSED - No issues found"
+        mark_final_qa_status "passed"
+        reset_final_qa_attempts  # Reset counter on success
+        
+        # Create Final QA report
+        mkdir -p reviews
+        cat > "reviews/final_qa_report.md" << EOF
+# Final QA Sprint Report
+
+**Date:** $(date -Iseconds)
+**Status:** ✅ PASSED
+**Attempt:** $((attempt + 1))/$max_attempts
+
+## Summary
+- All installation tests passed
+- All VERIFY criteria passed
+- All end-to-end workflows passed
+- All automated tests passed
+- No bugs found
+
+## Recommendation
+Project is ready for release.
+EOF
+        return 0
+    else
+        log_status "WARN" "⚠️ Final QA Sprint FAILED - $new_bugs issue(s) found"
+        mark_final_qa_status "failed"
+        
+        # Check if bugs were created - if not, this is a problem
+        if [[ $new_bugs -eq 0 ]]; then
+            log_status "WARN" "Final QA failed but no bugs were created. Agent should create bug tickets for issues found."
+            log_status "INFO" "Creating placeholder bug for investigation..."
+            
+            # Create a placeholder bug so the loop doesn't get stuck
+            local next_bug_id=$(jq -r '[.items[].id | select(startswith("BUG-")) | capture("BUG-(?<n>[0-9]+)").n | tonumber] | max // 0 + 1' "$BACKLOG_FILE" 2>/dev/null || echo "1")
+            local bug_id="BUG-$(printf '%03d' $next_bug_id)"
+            
+            jq --arg id "$bug_id" \
+               --arg title "Final QA failed - investigation needed" \
+               --arg desc "Final QA Sprint failed but did not specify issues. Manual investigation required." \
+            '.items += [{
+              "id": $id,
+              "title": $title,
+              "description": $desc,
+              "type": "bug",
+              "priority": 1,
+              "story_points": 3,
+              "status": "backlog",
+              "sprint_id": null,
+              "acceptance_criteria": ["Investigate Final QA failure", "Fix identified issues", "VERIFY: Final QA Sprint passes"],
+              "dependencies": []
+            }]' "$BACKLOG_FILE" > "${BACKLOG_FILE}.tmp" && mv "${BACKLOG_FILE}.tmp" "$BACKLOG_FILE"
+            
+            new_bugs=1
+        fi
+        
+        log_status "INFO" "Bug tickets created in backlog. Returning to development sprints."
+        
+        # Create Final QA failure report
+        mkdir -p reviews
+        cat > "reviews/final_qa_report.md" << EOF
+# Final QA Sprint Report
+
+**Date:** $(date -Iseconds)
+**Status:** ❌ FAILED
+**Attempt:** $((attempt + 1))/$max_attempts
+
+## Summary
+- Issues found: $new_bugs
+- Action: Bug tickets created in backlog
+
+## Next Steps
+1. Fix bugs in next development sprint
+2. Run Final QA Sprint again ($(($max_attempts - attempt - 1)) attempts remaining)
+3. Repeat until all issues resolved
+EOF
+        return 1
+    fi
+}
+
 # Execute a regular sprint (1-N)
 execute_sprint() {
     # Check if we should resume instead of starting fresh
@@ -732,6 +858,47 @@ run_sprinty() {
             break
         fi
         
+        # Check if Final QA Sprint is needed (all tasks done, Final QA not passed)
+        if needs_final_qa_sprint; then
+            log_status "INFO" "All development tasks complete - starting Final QA Sprint"
+            execute_final_qa_sprint
+            result=$?
+            
+            case $result in
+                0)
+                    # Final QA passed - project is truly done
+                    log_status "SUCCESS" "🎉 Final QA Sprint PASSED - Project complete!"
+                    mark_project_done
+                    update_status "$global_loop_count" "final_qa" "$current_sprint" "completed" "final_qa_passed"
+                    exit 20
+                    ;;
+                1)
+                    # Final QA failed - bugs created, continue sprinting
+                    log_status "INFO" "Final QA Sprint found issues - continuing development sprints"
+                    # Loop will continue with new bugs in backlog
+                    ;;
+                10)
+                    log_status "ERROR" "Final QA Sprint: Circuit breaker opened"
+                    update_status "$global_loop_count" "final_qa" "$current_sprint" "halted" "circuit_breaker"
+                    exit 10
+                    ;;
+            esac
+            continue  # Re-evaluate the loop condition
+        fi
+        
+        # Check if Final QA max attempts reached but still not passing
+        # This happens when backlog is complete but needs_final_qa_sprint returns false due to max attempts
+        if check_backlog_completion && ! has_final_qa_passed; then
+            local attempts=$(get_final_qa_attempts)
+            local max_attempts=${MAX_FINAL_QA_ATTEMPTS:-3}
+            if [[ $attempts -ge $max_attempts ]]; then
+                log_status "ERROR" "Final QA Sprint failed $attempts times. Project cannot be completed."
+                log_status "INFO" "Manual intervention required. Check reviews/final_qa_report.md for details."
+                update_status "$global_loop_count" "final_qa" "$current_sprint" "failed" "final_qa_max_attempts"
+                exit 1
+            fi
+        fi
+        
         # Capture sprint number BEFORE execution (for logging)
         local sprint_being_executed=$current_sprint
         
@@ -748,9 +915,9 @@ run_sprinty() {
                 exit 10
                 ;;
             20)
-                log_status "SUCCESS" "🎉 Project complete!"
-                update_status "$global_loop_count" "$(get_current_phase)" "$current_sprint" "completed" "project_done"
-                exit 20
+                # Don't mark project done yet - need to run Final QA Sprint
+                log_status "INFO" "Sprint complete - checking if Final QA Sprint needed"
+                # Loop will continue and trigger Final QA Sprint if needed
                 ;;
             21)
                 log_status "WARN" "Max sprints reached"
@@ -897,6 +1064,7 @@ Global Options:
     --monitor, -m           Launch in tmux dashboard (use with 'run')
     --reset-circuit         Reset circuit breaker
     --reset-rate-limit      Reset rate limiter
+    --reset-final-qa        Reset Final QA Sprint attempts (use if stuck)
     --calls <num>           Set max calls per hour
 
 Container Options (Recommended for Safety):
@@ -1248,6 +1416,19 @@ main() {
             ;;
         --reset-rate-limit)
             reset_rate_limiter
+            ;;
+        --reset-final-qa)
+            if [[ ! -f "$SPRINTY_DIR/sprint_state.json" ]]; then
+                echo "Error: No sprint state found. Run 'sprinty init' first."
+                exit 1
+            fi
+            reset_final_qa_attempts
+            mark_final_qa_status "not_run"
+            echo "✅ Final QA Sprint reset complete:"
+            echo "   - Attempt counter: reset to 0"
+            echo "   - Status: reset to 'not_run'"
+            echo ""
+            echo "You can now run 'sprinty run' to retry Final QA Sprint."
             ;;
         --version|-v)
             echo "Sprinty version $VERSION"

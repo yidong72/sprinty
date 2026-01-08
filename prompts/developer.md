@@ -224,12 +224,29 @@ jq '(.items[] | select(.id == "TASK-001")).failure_reason = null | (.items[] | s
 ## Implementation Checklist
 
 Before marking a task as `implemented`:
+
+### Required for ALL tasks:
 - [ ] Code is written and follows project standards
 - [ ] Unit tests are written and passing
+- [ ] **Run full test suite** (e.g., `pytest -v`, `npm test`) - check for failures
+- [ ] **Verify: 0 test failures** - if ANY test fails, fix it before submitting
 - [ ] Code coverage meets minimum threshold (85%)
 - [ ] All acceptance criteria are addressed
 - [ ] No linter errors or warnings
 - [ ] Code is committed to git
+
+### Additional for USER-FACING tasks (CLI commands, API endpoints, UI features):
+- [ ] **Manually verify the VERIFY criterion** from acceptance criteria
+- [ ] Actually run the command / call the API / use the UI
+- [ ] Confirm it produces the expected output/behavior
+
+**How to identify user-facing tasks:**
+- CLI command user will run → User-facing (requires manual verification)
+- API endpoint clients will call → User-facing (requires manual verification)
+- UI feature users will interact with → User-facing (requires manual verification)
+- Internal class/function/module → NOT user-facing (unit tests sufficient)
+
+**⚠️ Zero Tolerance Rule:** If ANY test fails, the task is NOT done. Fix the failing test or fix the code that broke it.
 
 ## ⚠️ MANDATORY: Update Status File
 

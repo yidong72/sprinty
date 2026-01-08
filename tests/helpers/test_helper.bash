@@ -141,6 +141,7 @@ get_project_root() {
 setup_test_environment() {
     # Get project root
     export PROJECT_ROOT="$(get_project_root)"
+    export SPRINTY_ROOT="$PROJECT_ROOT"
     
     # Create unique temp directory for this test
     export TEST_DIR="$(mktemp -d /tmp/sprinty_test_XXXXXX)"
@@ -155,6 +156,7 @@ setup_test_environment() {
     export RATE_LIMIT_STATE_FILE="$SPRINTY_DIR/.rate_limit_state"
     export CIRCUIT_BREAKER_STATE_FILE="$SPRINTY_DIR/.circuit_breaker_state"
     export EXIT_SIGNALS_FILE="$SPRINTY_DIR/.exit_signals"
+    export PROMPTS_DIR="$SPRINTY_ROOT/prompts"
     
     # Configuration defaults
     export MAX_CALLS_PER_HOUR=100

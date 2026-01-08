@@ -375,7 +375,13 @@ generate_prompt() {
     # Ensure output directory exists
     mkdir -p "$AGENT_OUTPUT_DIR"
     
-    local base_prompt_file="$PROMPTS_DIR/${role}.md"
+    # Determine base prompt file - use special prompt for final_qa phase
+    local base_prompt_file
+    if [[ "$phase" == "final_qa" ]]; then
+        base_prompt_file="$PROMPTS_DIR/final_qa.md"
+    else
+        base_prompt_file="$PROMPTS_DIR/${role}.md"
+    fi
     local output_prompt_file="$AGENT_OUTPUT_DIR/prompt_${role}_${phase}_sprint${sprint_id}.md"
     
     if [[ ! -f "$base_prompt_file" ]]; then

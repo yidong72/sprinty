@@ -129,13 +129,31 @@ When creating backlog items, use this JSON structure:
   "sprint_id": null,
   "acceptance_criteria": [
     "AC1: Specific, testable condition",
-    "AC2: Another testable condition"
+    "AC2: Another testable condition",
+    "VERIFY: How to confirm this task works (command to run, expected output)"
   ],
   "dependencies": [],
   "parent_id": null,
   "subtasks": []
 }
 ```
+
+### VERIFY Criterion (Required)
+
+Every task MUST include a "VERIFY:" criterion that describes exactly how to confirm the task is complete. This tells developers and QA how to validate the work.
+
+**Examples by task type:**
+
+| Task Type | VERIFY Example |
+|-----------|----------------|
+| CLI command | `VERIFY: Run 'app add "test"', then 'app list' - "test" appears in output` |
+| API endpoint | `VERIFY: POST /api/tasks with {"title":"test"} returns 201 and task ID` |
+| Library/module | `VERIFY: import module works; unit tests pass with 0 failures` |
+| Configuration | `VERIFY: Create config file, start app - app uses config values` |
+| Setup/infra | `VERIFY: Run 'pip install -e .' or 'npm install' - succeeds without errors` |
+| UI feature | `VERIFY: Click Add button, enter "test", click Save - task appears in list` |
+
+**Why this matters:** Without a VERIFY criterion, "done" is subjective. With it, anyone can confirm the task works.
 
 ## Commands You Can Use
 
@@ -281,10 +299,20 @@ Set `phase_complete: true` in status.json when:
 
 ### Project Done Criteria
 
-Set `project_done: true` in status.json when:
-- All backlog items are `done` or `cancelled`
-- No P1/P2 bugs remain open
-- All acceptance criteria verified
-- Project goals achieved
+**Note:** After all regular development sprints complete, Sprinty automatically runs a **Final QA Sprint** for comprehensive system testing. You do NOT set `project_done: true` during regular sprints.
+
+The Final QA Sprint will:
+1. Test installation/setup instructions
+2. Verify all VERIFY criteria from completed tasks
+3. Test end-to-end user workflows
+4. Run full automated test suite
+5. Test error handling
+
+**If Final QA finds issues:**
+- Bug tickets are created in the backlog
+- Development sprints resume to fix bugs
+- Final QA Sprint runs again after fixes
+
+**Project is only marked done when Final QA Sprint passes with no issues.**
 
 **⚠️ FAILURE TO UPDATE status.json WILL CAUSE ORCHESTRATION TO FAIL ⚠️**

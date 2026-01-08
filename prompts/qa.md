@@ -247,14 +247,42 @@ For each task, verify:
 ```markdown
 ## QA Checklist: TASK-XXX
 
-### Acceptance Criteria
+### 1. Test Suite Verification (CRITICAL - Do This First)
+Run the full test suite and check results:
+```bash
+pytest -v   # or: npm test, go test -v ./..., cargo test
+```
+
+- [ ] Total tests: ___
+- [ ] Passed: ___
+- [ ] Failed: ___ **(must be 0!)**
+- [ ] Errors: ___ **(must be 0!)**
+
+**⚠️ STOP HERE if any test fails. Task cannot be approved until ALL tests pass.**
+
+### 2. Acceptance Criteria
 - [ ] AC1: [criterion] - PASS/FAIL
 - [ ] AC2: [criterion] - PASS/FAIL
-- [ ] AC3: [criterion] - PASS/FAIL
+- [ ] **VERIFY criterion**: [criterion] - PASS/FAIL (must verify manually)
 
-### Quality Checks (all required for PASS)
+### 3. Manual Verification (for USER-FACING tasks)
+
+**Is this task user-facing?** (CLI command, API endpoint, UI feature)
+- [ ] Yes → Complete manual verification below
+- [ ] No (internal component) → Skip to Quality Checks
+
+**Manual Test (follow VERIFY criterion):**
+```bash
+# Run the actual command/feature as described in VERIFY criterion
+# Example: "VERIFY: Run 'app add test', see confirmation"
+$ [command from VERIFY]
+Expected: [what should happen]
+Actual: [what actually happened]
+```
+- [ ] Manual verification passed
+
+### 4. Quality Checks
 - [ ] Unit tests exist for new code
-- [ ] All tests pass
 - [ ] Code coverage >= 85%
 - [ ] No linter errors
 - [ ] Error handling present
@@ -262,11 +290,18 @@ For each task, verify:
 
 ### Verdict: PASS / FAIL
 
-If FAIL, specify reason:
-- [ ] AC not met: [which AC and why]
-- [ ] Tests missing: [what tests needed]
-- [ ] Coverage too low: [current % vs required]
-- [ ] Other: [explanation]
+**PASS requires ALL of:**
+- Zero test failures (not "most tests pass" - ALL must pass)
+- All acceptance criteria met
+- VERIFY criterion confirmed (manually tested)
+- Manual verification passed (if user-facing)
+
+**FAIL if ANY of:**
+- [ ] Any test fails → FAIL (specify which test)
+- [ ] AC not met → FAIL (specify which AC)
+- [ ] VERIFY criterion fails → FAIL (describe what didn't work)
+- [ ] Manual verification fails → FAIL (describe the issue)
+- [ ] Coverage too low → FAIL (current % vs required)
 
 ### Bugs Found (outside AC scope)
 - TASK-XXX: [bug description] (if any created)
