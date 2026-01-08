@@ -626,7 +626,8 @@ execute_opencode() {
     log_debug "Command: opencode ${cmd_args[*]:0:2} <prompt-content>"
     
     # Execute with timeout (--kill-after ensures SIGKILL if SIGTERM fails)
-    timeout --kill-after=30s ${timeout_seconds}s opencode "${cmd_args[@]}" > "$output_file" 2>&1
+    # Redirect stderr to /dev/null to avoid noise/progress indicators in output
+    timeout --kill-after=30s ${timeout_seconds}s opencode "${cmd_args[@]}" 2>/dev/null > "$output_file"
     local exit_code=$?
     
     # Handle timeout
@@ -652,7 +653,8 @@ execute_opencode_raw() {
     
     cmd_args+=("$prompt_string")
     
-    timeout --kill-after=30s ${timeout_seconds}s opencode "${cmd_args[@]}" > "$output_file" 2>&1
+    # Redirect stderr to /dev/null to avoid noise/progress indicators
+    timeout --kill-after=30s ${timeout_seconds}s opencode "${cmd_args[@]}" 2>/dev/null > "$output_file"
     return $?
 }
 
