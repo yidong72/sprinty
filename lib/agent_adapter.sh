@@ -827,20 +827,26 @@ check_phase_complete_enhanced() {
     return 1
 }
 
-# Strict project done check (file-based + backlog verification)
+# Strict project done check (file-based + backlog verification + Final QA)
 check_project_done_enhanced() {
     local output_file=$1
     
-    # Check status.json
+    # CRITICAL: Project is only truly done if Final QA Sprint has passed
+    # Even if agent says project_done or backlog is complete, we require Final QA
+    if ! has_final_qa_passed 2>/dev/null; then
+        log_debug "Project not done - Final QA Sprint not yet passed"
+        return 1
+    fi
+    
+    # Final QA has passed - now verify with status.json or backlog
     if is_project_done_from_status; then
-        log_status "INFO" "Project done detected from status.json"
+        log_status "INFO" "Project done: Final QA passed + status.json confirms"
         return 0
     fi
     
     # Also check backlog completion as safety check
-    # (This is a hard verification, not a fallback)
     if is_project_done; then
-        log_status "INFO" "Project done verified from backlog completion (all tasks done)"
+        log_status "INFO" "Project done: Final QA passed + all backlog items complete"
         return 0
     fi
     
