@@ -17,8 +17,8 @@ SPRINT_STATE_FILE="${SPRINTY_DIR:-.sprinty}/sprint_state.json"
 SPRINTS_DIR="${SPRINTS_DIR:-sprints}"
 REVIEWS_DIR="${REVIEWS_DIR:-reviews}"
 
-# Valid phases
-VALID_PHASES=("initialization" "planning" "implementation" "qa" "review")
+# Valid phases (including final_qa for comprehensive testing after all sprints)
+VALID_PHASES=("initialization" "planning" "implementation" "qa" "review" "final_qa")
 
 # Default max loops per phase
 DEFAULT_PLANNING_MAX_LOOPS=${PLANNING_MAX_LOOPS:-3}
@@ -517,6 +517,7 @@ get_role_for_phase() {
         "implementation") echo "developer" ;;
         "qa")             echo "qa" ;;
         "review")         echo "product_owner" ;;
+        "final_qa")       echo "qa" ;;
         *)                echo "developer" ;;
     esac
 }
