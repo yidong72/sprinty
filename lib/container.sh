@@ -726,6 +726,15 @@ launch_container() {
     local container_tmp=$(mktemp -d /tmp/sprinty-container-tmp.XXXXXX)
     chmod 1777 "$container_tmp"
     
+    # Pre-create tmux socket directory with correct permissions
+    # tmux creates /tmp/tmux-<uid>/ for its socket
+    local host_uid=$(id -u)
+    mkdir -p "$container_tmp/tmux-${host_uid}"
+    chmod 700 "$container_tmp/tmux-${host_uid}"
+    # Also create for root (uid 0) in case running as fakeroot
+    mkdir -p "$container_tmp/tmux-0"
+    chmod 700 "$container_tmp/tmux-0"
+    
     # Add /tmp bind mount
     bind_opts+=("--bind" "$container_tmp:/tmp")
     
