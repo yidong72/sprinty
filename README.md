@@ -591,6 +591,8 @@ sprinty --version
 | Container won't start | `sprinty container clear && sprinty container build` |
 | Agent stuck in loop | Check logs in `logs/agent_output/` |
 | Stale backlog | Manually edit `backlog.json` |
+| Agent connection failures | Increase `CURSOR_AGENT_MAX_RETRIES=5` and `CURSOR_AGENT_RETRY_DELAY=30` |
+| Agent crashes silently | Check logs, Sprinty auto-retries transient failures |
 
 ---
 
@@ -900,6 +902,10 @@ export SPRINTY_DIR=".sprinty-custom"
 # Change backlog file location (default: backlog.json)
 export BACKLOG_FILE="custom_backlog.json"
 
+# Configure agent retry behavior (for transient failures)
+export CURSOR_AGENT_MAX_RETRIES=3    # Number of retry attempts
+export CURSOR_AGENT_RETRY_DELAY=10   # Seconds between retries
+
 # Run with custom settings
 sprinty --container --workspace . run
 ```
@@ -914,6 +920,27 @@ sprinty --container --workspace . run
 | `BACKLOG_FILE` | `backlog.json` | Backlog file location |
 | `OPENCODE_API_KEY` | - | API key for opencode (if using paid models) |
 | `CURSOR_API_KEY` | - | API key for cursor-agent |
+| `CURSOR_AGENT_MAX_RETRIES` | `3` | Number of retry attempts on transient failures |
+| `CURSOR_AGENT_RETRY_DELAY` | `10` | Seconds to wait between retry attempts |
+
+### Retry Behavior
+
+Sprinty automatically retries agent execution on transient failures:
+
+| Error Type | Behavior |
+|------------|----------|
+| **Connection errors** | Retry up to `MAX_RETRIES` times |
+| **Rate limits** | Retry with exponentially increasing delay |
+| **Auth errors** | No retry (requires manual fix) |
+| **Timeouts** | No retry (too expensive) |
+| **Unknown errors** | Retry up to `MAX_RETRIES` times |
+
+```bash
+# Example: More aggressive retry for unreliable networks
+export CURSOR_AGENT_MAX_RETRIES=5
+export CURSOR_AGENT_RETRY_DELAY=30
+sprinty --container --workspace . run
+```
 
 ---
 

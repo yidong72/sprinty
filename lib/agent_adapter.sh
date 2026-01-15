@@ -473,21 +473,27 @@ generate_context_json() {
 
 # Execute cursor-agent with prompt file
 # Usage: execute_cursor_agent <prompt_file> <output_file> [timeout_seconds]
+# Returns: 0 on success, 1 on error, 124 on timeout
+# ERROR-PROOF: This function will NOT cause script exit due to set -e
 execute_cursor_agent() {
     local prompt_file=$1
     local output_file=$2
     local timeout_seconds=${3:-$((CURSOR_TIMEOUT_MINUTES * 60))}
+    local max_retries=${CURSOR_AGENT_MAX_RETRIES:-3}
+    local retry_delay=${CURSOR_AGENT_RETRY_DELAY:-10}
     
     # Validate prompt file exists
     if [[ ! -f "$prompt_file" ]]; then
         log_status "ERROR" "Prompt file not found: $prompt_file"
+        echo "ERROR: Prompt file not found: $prompt_file" > "$output_file"
         return 1
     fi
     
-    # Read prompt content
-    local prompt_content
-    prompt_content=$(cat "$prompt_file") || {
+    # Read prompt content (with error handling for set -e)
+    local prompt_content=""
+    prompt_content=$(cat "$prompt_file" 2>/dev/null) || {
         log_status "ERROR" "Failed to read prompt file: $prompt_file"
+        echo "ERROR: Failed to read prompt file: $prompt_file" > "$output_file"
         return 1
     }
     
@@ -507,22 +513,102 @@ execute_cursor_agent() {
     # Add the prompt as the final argument
     cmd_args+=("$prompt_content")
     
-    log_status "INFO" "Executing cursor-agent (timeout: ${timeout_seconds}s)..."
+    # Retry loop for transient failures
+    local attempt=0
+    local exit_code=0
     
-    # Execute with timeout (--kill-after ensures SIGKILL if SIGTERM fails)
-    timeout --kill-after=30s ${timeout_seconds}s "$CURSOR_AGENT_CMD" "${cmd_args[@]}" > "$output_file" 2>&1
-    local exit_code=$?
+    while [[ $attempt -lt $max_retries ]]; do
+        attempt=$((attempt + 1))
+        
+        if [[ $attempt -gt 1 ]]; then
+            log_status "WARN" "Retry attempt $attempt/$max_retries after ${retry_delay}s delay..."
+            sleep "$retry_delay"
+        fi
+        
+        log_status "INFO" "Executing cursor-agent (timeout: ${timeout_seconds}s, attempt: $attempt/$max_retries)..."
+        
+        # Execute with timeout - USE || true TO PREVENT set -e EXIT
+        # The || true ensures the command always "succeeds" for set -e purposes
+        # We capture the actual exit code separately
+        exit_code=0
+        timeout --kill-after=30s ${timeout_seconds}s "$CURSOR_AGENT_CMD" "${cmd_args[@]}" > "$output_file" 2>&1 || exit_code=$?
+        
+        # Log what happened
+        log_debug "cursor-agent exited with code: $exit_code"
+        
+        # Check output file size
+        local output_size=0
+        if [[ -f "$output_file" ]]; then
+            output_size=$(wc -c < "$output_file" 2>/dev/null || echo "0")
+        fi
+        
+        # Handle different exit scenarios
+        case $exit_code in
+            0)
+                # Success
+                if [[ $output_size -gt 0 ]]; then
+                    log_status "SUCCESS" "cursor-agent completed (output: ${output_size} bytes)"
+                    return 0
+                else
+                    log_status "WARN" "cursor-agent returned 0 but produced no output"
+                    echo "WARNING: cursor-agent returned success but produced no output" >> "$output_file"
+                    # Don't retry for this - might be valid empty response
+                    return 0
+                fi
+                ;;
+            124)
+                # Timeout
+                echo "TIMEOUT: cursor-agent execution timed out after ${timeout_seconds}s" >> "$output_file"
+                log_status "WARN" "cursor-agent execution timed out (attempt $attempt)"
+                # Don't retry timeouts - they're too expensive
+                return 124
+                ;;
+            137|143)
+                # Killed by signal (SIGKILL=137, SIGTERM=143)
+                echo "ERROR: cursor-agent was killed (signal $exit_code)" >> "$output_file"
+                log_status "ERROR" "cursor-agent was killed by signal (exit code: $exit_code)"
+                # Retry - might be transient resource issue
+                ;;
+            *)
+                # Other errors
+                log_status "WARN" "cursor-agent failed (exit code: $exit_code, output: ${output_size} bytes)"
+                
+                # Check if output contains specific error types
+                if [[ $output_size -gt 0 ]]; then
+                    # Check for connection errors (should retry)
+                    if grep -qiE "ConnectError|connection.*refused|unavailable|ECONNREFUSED|network" "$output_file" 2>/dev/null; then
+                        log_status "WARN" "Connection error detected - will retry"
+                        continue
+                    fi
+                    
+                    # Check for rate limit (should retry with longer delay)
+                    if grep -qiE "rate.?limit|too many requests|429|throttl" "$output_file" 2>/dev/null; then
+                        log_status "WARN" "Rate limit detected - will retry with longer delay"
+                        retry_delay=$((retry_delay * 2))
+                        continue
+                    fi
+                    
+                    # Check for auth errors (don't retry)
+                    if grep -qiE "unauthorized|authentication|invalid.*key|forbidden" "$output_file" 2>/dev/null; then
+                        log_status "ERROR" "Authentication error - not retrying"
+                        return 1
+                    fi
+                fi
+                
+                # Unknown error - retry anyway
+                echo "ERROR: cursor-agent failed with exit code $exit_code" >> "$output_file"
+                ;;
+        esac
+    done
     
-    # Handle timeout
-    if [[ $exit_code -eq 124 ]]; then
-        echo "TIMEOUT: cursor-agent execution timed out after ${timeout_seconds}s" >> "$output_file"
-        log_status "WARN" "cursor-agent execution timed out"
-    fi
-    
+    # All retries exhausted
+    log_status "ERROR" "cursor-agent failed after $max_retries attempts (last exit code: $exit_code)"
+    echo "ERROR: All $max_retries retry attempts failed" >> "$output_file"
     return $exit_code
 }
 
 # Execute cursor-agent with raw prompt string (not from file)
+# ERROR-PROOF: This function will NOT cause script exit due to set -e
 execute_cursor_agent_raw() {
     local prompt_string=$1
     local output_file=$2
@@ -536,8 +622,11 @@ execute_cursor_agent_raw() {
     
     cmd_args+=("$prompt_string")
     
-    timeout --kill-after=30s ${timeout_seconds}s "$CURSOR_AGENT_CMD" "${cmd_args[@]}" > "$output_file" 2>&1
-    return $?
+    # Use || to prevent set -e from exiting the script
+    local exit_code=0
+    timeout --kill-after=30s ${timeout_seconds}s "$CURSOR_AGENT_CMD" "${cmd_args[@]}" > "$output_file" 2>&1 || exit_code=$?
+    
+    return $exit_code
 }
 
 # ============================================================================
@@ -928,21 +1017,29 @@ detect_blockers() {
 
 # Execute agent for a specific role/phase combination
 # Usage: run_agent <role> <phase> <sprint_id>
-# Returns: 0 on success, 1 on error, 2 on rate limit, 3 on timeout
+# Returns: 0 on success, 1 on error, 2 on rate limit, 3 on timeout, 4 on connection error
+# ERROR-PROOF: This function will NOT cause script exit due to set -e
 run_agent() {
     local role=$1
     local phase=$2
     local sprint_id=$3
     
-    # Generate context
-    local context
-    context=$(generate_context_json)
+    # Generate context (error-proof)
+    local context=""
+    context=$(generate_context_json 2>/dev/null) || {
+        log_status "WARN" "Failed to generate context, using empty context"
+        context="{}"
+    }
     
-    # Generate prompt
-    local prompt_file
-    prompt_file=$(generate_prompt "$role" "$phase" "$sprint_id" "$context")
-    if [[ $? -ne 0 ]]; then
+    # Generate prompt (error-proof)
+    local prompt_file=""
+    prompt_file=$(generate_prompt "$role" "$phase" "$sprint_id" "$context" 2>/dev/null) || {
         log_status "ERROR" "Failed to generate prompt for $role in $phase"
+        return 1
+    }
+    
+    if [[ -z "$prompt_file" || ! -f "$prompt_file" ]]; then
+        log_status "ERROR" "Prompt file not created or empty: $prompt_file"
         return 1
     fi
     
@@ -950,50 +1047,65 @@ run_agent() {
     local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
     local output_file="$AGENT_OUTPUT_DIR/output_${role}_${phase}_sprint${sprint_id}_${timestamp}.log"
     
+    # Ensure output directory exists
+    mkdir -p "$AGENT_OUTPUT_DIR" 2>/dev/null || true
+    
+    # Create output file to ensure it exists
+    touch "$output_file" 2>/dev/null || true
+    
     log_status "INFO" "Running $role agent for $phase phase (sprint $sprint_id)"
     
-    # Execute agent
-    execute_agent "$prompt_file" "$output_file"
-    local exit_code=$?
+    # Execute agent (error-proof - captures exit code without triggering set -e)
+    local exit_code=0
+    execute_agent "$prompt_file" "$output_file" || exit_code=$?
     
-    # Handle errors
+    log_debug "Agent execution returned: $exit_code"
+    
+    # Handle timeout specifically
     if [[ $exit_code -eq 124 ]]; then
         log_status "WARN" "Agent execution timed out"
+        echo "$output_file" > "$AGENT_OUTPUT_DIR/.last_output" 2>/dev/null || true
         return 3
     fi
     
-    if detect_rate_limit_error "$output_file"; then
+    # Check for specific error types in output (error-proof with || true)
+    if detect_rate_limit_error "$output_file" 2>/dev/null; then
         log_status "WARN" "Rate limit detected"
+        echo "$output_file" > "$AGENT_OUTPUT_DIR/.last_output" 2>/dev/null || true
         return 2
     fi
     
-    if detect_auth_error "$output_file"; then
+    if detect_auth_error "$output_file" 2>/dev/null; then
         log_status "ERROR" "Authentication error"
+        echo "$output_file" > "$AGENT_OUTPUT_DIR/.last_output" 2>/dev/null || true
         return 1
     fi
     
-    if detect_connection_error "$output_file"; then
+    if detect_connection_error "$output_file" 2>/dev/null; then
         log_status "ERROR" "Connection error - check network connectivity"
-        return 4  # New return code for connection errors
+        echo "$output_file" > "$AGENT_OUTPUT_DIR/.last_output" 2>/dev/null || true
+        return 4
     fi
     
+    # Handle non-zero exit from agent
     if [[ $exit_code -ne 0 ]]; then
         log_status "ERROR" "Agent execution failed (exit code: $exit_code)"
+        echo "$output_file" > "$AGENT_OUTPUT_DIR/.last_output" 2>/dev/null || true
         return 1
     fi
     
-    # Parse and validate response (strict file-based only)
-    local status_json
-    status_json=$(parse_agent_status_enhanced "$output_file" "$role")
-    local parse_result=$?
+    # Parse and validate response (error-proof)
+    local status_json=""
+    local parse_result=0
+    status_json=$(parse_agent_status_enhanced "$output_file" "$role" 2>/dev/null) || parse_result=$?
     
-    if [[ $parse_result -ne 0 || "$status_json" == "{}" ]]; then
+    if [[ $parse_result -ne 0 || -z "$status_json" || "$status_json" == "{}" ]]; then
         log_status "ERROR" "Agent did not update status.json properly"
         log_status "ERROR" "Agent MUST update .sprinty/status.json with the jq command from prompts"
         log_status "ERROR" "This is a REQUIRED step for Sprinty orchestration"
         
-        # Store latest output file path
-        echo "$output_file" > "$AGENT_OUTPUT_DIR/.last_output"
+        # Store output file path even on failure
+        echo "$output_file" > "$AGENT_OUTPUT_DIR/.last_output" 2>/dev/null || true
         
         # Return error to indicate agent failed to follow instructions
         return 1
@@ -1003,7 +1115,7 @@ run_agent() {
     log_debug "Status: $status_json"
     
     # Store latest output file path
-    echo "$output_file" > "$AGENT_OUTPUT_DIR/.last_output"
+    echo "$output_file" > "$AGENT_OUTPUT_DIR/.last_output" 2>/dev/null || true
     
     return 0
 }

@@ -270,9 +270,11 @@ execute_phase() {
         # Update status
         update_status "$global_loop_count" "$phase" "$sprint_id" "executing"
         
-        # Execute agent
-        run_agent "$role" "$phase" "$sprint_id"
-        local agent_result=$?
+        # Execute agent (error-proof: use || to capture exit code without triggering set -e)
+        local agent_result=0
+        run_agent "$role" "$phase" "$sprint_id" || agent_result=$?
+        
+        log_debug "Agent returned: $agent_result"
         
         # Increment call counter
         increment_call_counter
