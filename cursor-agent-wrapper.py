@@ -28,7 +28,7 @@ def read_prompt_file(prompt_path):
     return prompt_path
 
 
-def clean_output(text):
+def clean_output(text, original_prompt=None):
     """Extract final agent response from cursor-agent TUI output."""
     
     # Remove ANSI escape sequences
@@ -93,6 +93,12 @@ def clean_output(text):
         if cleaned in seen_content:
             continue
         
+        # Skip if this is the original prompt being echoed
+        if original_prompt:
+            # Check if line matches prompt or is a substring/truncation of it
+            if cleaned == original_prompt or cleaned in original_prompt or original_prompt.startswith(cleaned):
+                continue
+        
         seen_content.add(cleaned)
         content_lines.append(cleaned)
     
@@ -113,7 +119,37 @@ def clean_output(text):
     return '\n'.join(final_lines)
 
 
-def run_cursor_agent(model, prompt, extra_args=None, timeout=600, idle_timeout=60, verbose=False, clean=False):
+def wait_for_pattern(child, patterns, timeout=10, verbose=False):
+    """Wait for any of the patterns to appear in output. Returns matched output."""
+    if isinstance(patterns, str):
+        patterns = [patterns]
+    
+    buffer = ""
+    start = time.time()
+    while time.time() - start < timeout:
+        # Check if process is still alive
+        if not child.isalive():
+            if verbose:
+                print("[DEBUG] Process died while waiting for pattern", file=sys.stderr)
+            break
+        try:
+            chunk = child.read_nonblocking(size=4096, timeout=0.1)
+            buffer += chunk
+            for pattern in patterns:
+                if pattern in buffer:
+                    if verbose:
+                        print(f"[DEBUG] Pattern matched: {repr(pattern)}", file=sys.stderr)
+                    return buffer
+        except pexpect.TIMEOUT:
+            continue
+        except pexpect.EOF:
+            if verbose:
+                print("[DEBUG] EOF while waiting for pattern", file=sys.stderr)
+            break
+    return buffer
+
+
+def run_cursor_agent(model, prompt, extra_args=None, timeout=600, idle_timeout=60, verbose=False, clean=False, no_autorun=False):
     """
     Run cursor-agent in interactive mode and inject the prompt.
     """
@@ -131,83 +167,94 @@ def run_cursor_agent(model, prompt, extra_args=None, timeout=600, idle_timeout=6
     # Spawn with proper terminal size
     child = pexpect.spawn(cmd, encoding='utf-8', timeout=timeout, dimensions=(50, 120))
     
-    # Wait for TUI to fully initialize
+    # Wait for TUI to be ready by looking for UI elements
     if verbose:
         print("[DEBUG] Waiting for TUI to initialize...", file=sys.stderr)
-    time.sleep(3)
     
-    # Drain initial output and wait for TUI to be ready
-    tui_ready = False
-    for _ in range(10):  # Try up to 10 times
+    # Check if process died immediately
+    if not child.isalive():
+        print("Error: cursor-agent process died immediately. Check if cursor-agent works in this environment.", file=sys.stderr)
         try:
-            initial_output = child.read_nonblocking(size=65536, timeout=1)
-            # Look for signs the TUI is ready (input field, prompt indicator)
-            if '│' in initial_output or '→' in initial_output or 'Auto-run' in initial_output:
-                tui_ready = True
-                if verbose:
-                    print("[DEBUG] TUI ready indicator found", file=sys.stderr)
-                break
-        except pexpect.TIMEOUT:
+            remaining = child.read()
+            if remaining:
+                print(f"Process output: {remaining}", file=sys.stderr)
+        except:
             pass
-        time.sleep(0.5)
+        return 1
     
-    if not tui_ready and verbose:
-        print("[DEBUG] Warning: TUI ready indicator not found, proceeding anyway", file=sys.stderr)
+    tui_ready_patterns = ['Auto-run', '│', '→', 'shift+tab', '/ commands']
+    initial_output = wait_for_pattern(child, tui_ready_patterns, timeout=15, verbose=verbose)
     
-    # Extra delay to ensure TUI is ready for input
-    time.sleep(1)
+    if not any(p in initial_output for p in tui_ready_patterns):
+        if verbose:
+            print("[DEBUG] Warning: TUI ready indicator not found, proceeding anyway", file=sys.stderr)
+        # Check again if process died
+        if not child.isalive():
+            print("Error: cursor-agent process died during initialization.", file=sys.stderr)
+            print(f"Captured output: {initial_output[:500] if initial_output else 'none'}", file=sys.stderr)
+            return 1
+    else:
+        if verbose:
+            print("[DEBUG] TUI ready", file=sys.stderr)
     
     # Buffer for clean output mode
     output_buffer = []
     
     try:
-        # Enable auto-run mode first
-        if verbose:
-            print("[DEBUG] Enabling auto-run...", file=sys.stderr)
-        
-        # Send a dummy character and backspace to "wake up" the input field
-        # This ensures the TUI is ready to receive the actual command
-        child.send(' ')
-        time.sleep(0.1)
-        child.send('\x7f')  # Backspace (DEL)
-        time.sleep(0.2)
-        
-        # Type the command with a longer delay for the first character
-        cmd = '/auto-run on'
-        child.send(cmd[0])  # Send '/' first
-        time.sleep(0.1)  # Wait a bit longer for the first char
-        for char in cmd[1:]:
-            child.send(char)
-            time.sleep(0.02)
-        
-        time.sleep(0.5)
-        child.send('\r')  # Enter
-        time.sleep(1.5)
+        # Enable auto-run mode using Shift+Tab shortcut (more reliable than /auto-run command)
+        if not no_autorun:
+            if verbose:
+                print("[DEBUG] Enabling auto-run via Shift+Tab...", file=sys.stderr)
+            
+            # Shift+Tab escape sequence
+            child.send('\x1b[Z')
+            
+            # Drain output after toggling
+            try:
+                while True:
+                    child.read_nonblocking(size=4096, timeout=0.3)
+            except pexpect.TIMEOUT:
+                pass
+            except pexpect.EOF:
+                print("Error: cursor-agent process died unexpectedly after Shift+Tab.", file=sys.stderr)
+                print("Hint: Try --no-autorun to skip auto-run toggle.", file=sys.stderr)
+                return 1
+            
+            # Verify process still alive
+            if not child.isalive():
+                print("Error: cursor-agent process is not running.", file=sys.stderr)
+                return 1
+            
+            if verbose:
+                print("[DEBUG] Auto-run toggled", file=sys.stderr)
+        else:
+            if verbose:
+                print("[DEBUG] Skipping auto-run (--no-autorun)", file=sys.stderr)
         
         if verbose:
             print("[DEBUG] Sending prompt...", file=sys.stderr)
         
-        # Wake up input field before sending prompt
-        child.send(' ')
-        time.sleep(0.1)
-        child.send('\x7f')  # Backspace
-        time.sleep(0.2)
+        # Send prompt with \r for Enter
+        child.send(prompt + '\r')
         
-        # Send the prompt with longer initial delay
-        if len(prompt) > 0:
-            child.send(prompt[0])
-            time.sleep(0.05)
-            for char in prompt[1:]:
-                child.send(char)
-                time.sleep(0.01)
+        # Verify process still alive after sending prompt
+        if not child.isalive():
+            print("Error: cursor-agent process died after sending prompt.", file=sys.stderr)
+            return 1
         
-        time.sleep(0.5)
+        # Wait for signs that the agent started processing
+        processing_patterns = ['...', 'Thinking', 'Running', 'Generating', 'tokens']
+        processing_output = wait_for_pattern(child, processing_patterns, timeout=15, verbose=verbose)
         
-        # Submit with Enter
+        # Check if we got any processing indicators
+        if not child.isalive():
+            print("Error: cursor-agent process died while waiting for response.", file=sys.stderr)
+            if processing_output:
+                print(f"Last output: {processing_output[:200]}", file=sys.stderr)
+            return 1
+        
         if verbose:
-            print("[DEBUG] Submitting with Enter...", file=sys.stderr)
-        child.send('\r')  # Regular Enter
-        time.sleep(1.5)
+            print("[DEBUG] Agent processing started", file=sys.stderr)
         
         if verbose:
             print("[DEBUG] Monitoring output...", file=sys.stderr)
@@ -273,9 +320,7 @@ def run_cursor_agent(model, prompt, extra_args=None, timeout=600, idle_timeout=6
                     retry_count += 1
                     if verbose:
                         print(f"\n[DEBUG] Retry #{retry_count}: pressing Enter...", file=sys.stderr)
-                    child.send('\r')
-                    time.sleep(0.3)
-                    child.send('\n')
+                    child.send('\r')  # Send Enter (carriage return for TUI)
                     last_output_time = time.time()
                     
                 # Overall timeout
@@ -294,7 +339,6 @@ def run_cursor_agent(model, prompt, extra_args=None, timeout=600, idle_timeout=6
             if verbose:
                 print("\n[DEBUG] Exiting...", file=sys.stderr)
             child.sendcontrol('c')
-            time.sleep(0.3)
             child.send('/exit\r')
             try:
                 child.expect(pexpect.EOF, timeout=3)
@@ -304,8 +348,16 @@ def run_cursor_agent(model, prompt, extra_args=None, timeout=600, idle_timeout=6
         # Output cleaned result if clean mode is enabled
         if clean and output_buffer:
             raw_output = ''.join(output_buffer)
-            cleaned = clean_output(raw_output)
-            print(cleaned)
+            cleaned = clean_output(raw_output, original_prompt=prompt)
+            if cleaned.strip():
+                print(cleaned)
+            elif not work_started:
+                print("Error: No meaningful output captured from cursor-agent.", file=sys.stderr)
+        elif not work_started:
+            print("Error: cursor-agent did not produce any output.", file=sys.stderr)
+        
+        if not work_started:
+            print("Hint: Try running 'cursor-agent --model <model>' directly to check if it works.", file=sys.stderr)
         
         return 0 if work_started else 1
         
@@ -328,6 +380,7 @@ def main():
     parser.add_argument('-v', '--verbose', action='store_true', help='Debug output')
     parser.add_argument('--raw', action='store_true', help='Output raw TUI (default: clean output)')
     parser.add_argument('-c', '--clean', action='store_true', help='(deprecated, now default)')
+    parser.add_argument('--no-autorun', action='store_true', help='Skip auto-run toggle (for environments where Shift+Tab fails)')
     
     args = parser.parse_args()
     prompt = read_prompt_file(args.prompt)
@@ -338,7 +391,8 @@ def main():
         timeout=args.timeout,
         idle_timeout=args.idle_timeout,
         verbose=args.verbose,
-        clean=not args.raw
+        clean=not args.raw,
+        no_autorun=args.no_autorun
     )
     sys.exit(exit_code)
 
