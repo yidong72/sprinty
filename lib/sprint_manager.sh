@@ -451,6 +451,25 @@ show_agent_config_status() {
         
         echo -e "Agent CLI Tool:    ${CYAN}$cli_tool${NC}"
         echo -e "Agent Status:      $agent_status"
+        
+        # For cursor-agent, also check for the wrapper which is required for execution
+        if [[ "$cli_tool" == "cursor-agent" ]]; then
+            local wrapper_status=""
+            if command -v cursor-agent-wrapper.py &> /dev/null; then
+                wrapper_status="${GREEN}✓ Available${NC}"
+            else
+                wrapper_status="${RED}✗ Not found${NC} (required for execution)"
+            fi
+            echo -e "Wrapper:           $wrapper_status"
+            
+            # Also check pexpect dependency
+            if python3 -c "import pexpect" 2>/dev/null; then
+                echo -e "pexpect:           ${GREEN}✓ Installed${NC}"
+            else
+                echo -e "pexpect:           ${RED}✗ Not installed${NC} (pip install pexpect)"
+            fi
+        fi
+        
         echo -e "Model:             ${CYAN}$model${NC}"
         echo -e "Timeout:           ${timeout} minutes"
     else
