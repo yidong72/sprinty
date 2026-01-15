@@ -284,6 +284,11 @@ execute_phase() {
                 log_status "WARN" "Agent execution timed out"
                 record_idle_loop "$global_loop_count" "timeout"
                 ;;
+            4)
+                log_status "ERROR" "Connection error - retrying in 30 seconds"
+                record_idle_loop "$global_loop_count" "connection_error"
+                sleep 30  # Wait longer for network issues
+                ;;
             *)
                 log_status "ERROR" "Agent execution failed (code: $agent_result)"
                 record_idle_loop "$global_loop_count" "execution_error"

@@ -489,6 +489,16 @@ detect_auth_error() {
     return 1  # No auth error
 }
 
+# Check for connection errors
+detect_connection_error() {
+    local output_file=$1
+    
+    if grep -qiE "ConnectError|connection.*refused|connection.*failed|unavailable|network.*error|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|getaddrinfo|DNS.*error|socket.*error|could not connect" "$output_file" 2>/dev/null; then
+        return 0  # Connection error detected
+    fi
+    return 1  # No connection error
+}
+
 # Check for permission errors
 detect_permission_error() {
     local output_file=$1
@@ -569,6 +579,11 @@ run_agent() {
     if detect_auth_error "$output_file"; then
         log_status "ERROR" "Authentication error"
         return 1
+    fi
+    
+    if detect_connection_error "$output_file"; then
+        log_status "ERROR" "Connection error - check network connectivity"
+        return 4  # New return code for connection errors
     fi
     
     if [[ $exit_code -ne 0 ]]; then
@@ -663,6 +678,7 @@ export -f check_phase_complete_from_response
 export -f check_project_done_from_response
 export -f detect_rate_limit_error
 export -f detect_auth_error
+export -f detect_connection_error
 export -f detect_permission_error
 export -f detect_timeout
 export -f detect_blockers
