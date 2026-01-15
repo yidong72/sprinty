@@ -136,11 +136,26 @@ def run_cursor_agent(model, prompt, extra_args=None, timeout=600, idle_timeout=6
         print("[DEBUG] Waiting for TUI to initialize...", file=sys.stderr)
     time.sleep(3)
     
-    # Drain initial output
-    try:
-        child.read_nonblocking(size=65536, timeout=1)
-    except pexpect.TIMEOUT:
-        pass
+    # Drain initial output and wait for TUI to be ready
+    tui_ready = False
+    for _ in range(10):  # Try up to 10 times
+        try:
+            initial_output = child.read_nonblocking(size=65536, timeout=1)
+            # Look for signs the TUI is ready (input field, prompt indicator)
+            if '│' in initial_output or '→' in initial_output or 'Auto-run' in initial_output:
+                tui_ready = True
+                if verbose:
+                    print("[DEBUG] TUI ready indicator found", file=sys.stderr)
+                break
+        except pexpect.TIMEOUT:
+            pass
+        time.sleep(0.5)
+    
+    if not tui_ready and verbose:
+        print("[DEBUG] Warning: TUI ready indicator not found, proceeding anyway", file=sys.stderr)
+    
+    # Extra delay to ensure TUI is ready for input
+    time.sleep(1)
     
     # Buffer for clean output mode
     output_buffer = []
@@ -150,8 +165,18 @@ def run_cursor_agent(model, prompt, extra_args=None, timeout=600, idle_timeout=6
         if verbose:
             print("[DEBUG] Enabling auto-run...", file=sys.stderr)
         
-        # Type the command
-        for char in '/auto-run on':
+        # Send a dummy character and backspace to "wake up" the input field
+        # This ensures the TUI is ready to receive the actual command
+        child.send(' ')
+        time.sleep(0.1)
+        child.send('\x7f')  # Backspace (DEL)
+        time.sleep(0.2)
+        
+        # Type the command with a longer delay for the first character
+        cmd = '/auto-run on'
+        child.send(cmd[0])  # Send '/' first
+        time.sleep(0.1)  # Wait a bit longer for the first char
+        for char in cmd[1:]:
             child.send(char)
             time.sleep(0.02)
         
@@ -162,28 +187,27 @@ def run_cursor_agent(model, prompt, extra_args=None, timeout=600, idle_timeout=6
         if verbose:
             print("[DEBUG] Sending prompt...", file=sys.stderr)
         
-        # Send the prompt
-        for char in prompt:
-            child.send(char)
-            time.sleep(0.01)
+        # Wake up input field before sending prompt
+        child.send(' ')
+        time.sleep(0.1)
+        child.send('\x7f')  # Backspace
+        time.sleep(0.2)
+        
+        # Send the prompt with longer initial delay
+        if len(prompt) > 0:
+            child.send(prompt[0])
+            time.sleep(0.05)
+            for char in prompt[1:]:
+                child.send(char)
+                time.sleep(0.01)
         
         time.sleep(0.5)
         
-        # Try different submit methods
+        # Submit with Enter
         if verbose:
             print("[DEBUG] Submitting with Enter...", file=sys.stderr)
         child.send('\r')  # Regular Enter
-        time.sleep(1)
-        
-        # If that doesn't work, try Ctrl+Enter
-        if verbose:
-            print("[DEBUG] Trying Ctrl+Enter...", file=sys.stderr)
-        child.sendcontrol('m')  # Ctrl+M (same as Enter)
-        time.sleep(0.5)
-        
-        # Also try sending newline directly
-        child.send('\n')
-        time.sleep(0.5)
+        time.sleep(1.5)
         
         if verbose:
             print("[DEBUG] Monitoring output...", file=sys.stderr)
