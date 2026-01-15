@@ -138,7 +138,7 @@ build_cached_container() {
     mkdir -p "$CONTAINER_CACHE_DIR"
     
     log_status "INFO" "Building cached container: $cache_file"
-    log_status "INFO" "This may take a few minutes (one-time setup)..."
+    log_status "INFO" "This may take 3-5 minutes (one-time setup, includes Node.js/Go/Rust)..."
     
     # Create definition file
     local def_file=$(mktemp /tmp/sprinty-container.XXXXXX.def)
@@ -164,6 +164,8 @@ From: ${image#docker://}
         python3 \\
         python3-pip \\
         python3-venv \\
+        python3-full \\
+        pipx \\
         build-essential \\
         ca-certificates \\
         locales
@@ -171,22 +173,62 @@ From: ${image#docker://}
     # Setup locale
     locale-gen en_US.UTF-8
     
+    # Remove PEP 668 restriction for container flexibility
+    rm -f /usr/lib/python3.*/EXTERNALLY-MANAGED 2>/dev/null || true
+    
+    # ============================================================================
+    # INSTALL DEVELOPMENT TOOLS (cached for instant startup)
+    # ============================================================================
+    
+    # Install uv (fast Python package manager)
+    echo "Installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh || true
+    ln -sf /root/.local/bin/uv /usr/local/bin/uv 2>/dev/null || true
+    ln -sf /root/.local/bin/uvx /usr/local/bin/uvx 2>/dev/null || true
+    
+    # Install Python test frameworks
+    pip install --quiet pytest pytest-cov numpy pandas requests 2>/dev/null || true
+    
+    # Install Node.js via nvm
+    echo "Installing Node.js..."
+    export NVM_DIR="/root/.nvm"
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+    . "\$NVM_DIR/nvm.sh"
+    nvm install --lts || nvm install 20 || true
+    nvm alias default node || true
+    
+    # Install Go
+    echo "Installing Go..."
+    GO_VERSION="1.22.0"
+    curl -fsSL "https://go.dev/dl/go\${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xzf - || true
+    ln -sf /usr/local/go/bin/go /usr/local/bin/go 2>/dev/null || true
+    ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt 2>/dev/null || true
+    
+    # Install Rust
+    echo "Installing Rust..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y || true
+    
     # Cleanup to reduce image size
     apt-get clean
     rm -rf /var/lib/apt/lists/*
     
     # Create directories
     mkdir -p /workspace /opt/sprinty /root/.config/cursor
+    
+    # Create marker file to indicate setup is complete
+    touch /opt/.sprinty-setup-complete
 
 %environment
     export LC_ALL=en_US.UTF-8
     export LANG=en_US.UTF-8
     export DEBIAN_FRONTEND=noninteractive
+    export NVM_DIR="/root/.nvm"
+    export PATH="/usr/local/go/bin:/root/.cargo/bin:/usr/local/bin:\$PATH"
 
 %labels
     Author Sprinty
-    Version 1.0
-    Description Sprinty container with pre-installed packages
+    Version 2.0
+    Description Sprinty container with full development environment
 DEFEOF
     
     # Build the container
@@ -238,116 +280,121 @@ create_setup_script() {
 # Sprinty Container Setup Script
 set -e
 
-echo "=== Setting up Sprinty in container ==="
-
 # Set non-interactive mode to avoid timezone and other prompts
 export DEBIAN_FRONTEND=noninteractive
 export TZ=UTC
 
-# Pre-configure timezone to avoid interactive prompt
-ln -snf /usr/share/zoneinfo/$TZ /etc/localtime 2>/dev/null || true
-echo $TZ > /etc/timezone 2>/dev/null || true
-
-# Update package lists (suppress output)
-apt-get update -qq 2>/dev/null || true
-
-# Install essential tools (non-interactive)
-apt-get install -y -qq --no-install-recommends \
-    curl \
-    git \
-    jq \
-    tmux \
-    python3 \
-    python3-pip \
-    python3-venv \
-    python3-full \
-    pipx \
-    build-essential \
-    2>/dev/null || true
-
-# Remove PEP 668 restriction (EXTERNALLY-MANAGED) to allow pip install without venv
-# This is safe in a container environment where we want full flexibility
-rm -f /usr/lib/python3.*/EXTERNALLY-MANAGED 2>/dev/null || true
-echo "✓ Removed Python externally-managed restriction (PEP 668)"
-
-# Install uv (fast Python package manager)
-echo "Installing uv..."
-curl -LsSf https://astral.sh/uv/install.sh 2>/dev/null | sh 2>/dev/null || true
-if [[ -f "/root/.local/bin/uv" ]]; then
-    ln -sf /root/.local/bin/uv /usr/local/bin/uv 2>/dev/null || true
-    ln -sf /root/.local/bin/uvx /usr/local/bin/uvx 2>/dev/null || true
-    echo "✓ uv installed: $(uv --version 2>/dev/null || echo 'install pending')"
-fi
-
-# Install common test frameworks so agents can run tests immediately
-pip install --quiet pytest pytest-cov 2>/dev/null || true
-
-# ============================================================================
-# INSTALL COMMON DEVELOPMENT ENVIRONMENTS
-# ============================================================================
-
-echo "Installing common development environments..."
-
-# --- Node.js via nvm ---
-export NVM_DIR="/root/.nvm"
-if [[ ! -d "$NVM_DIR" ]]; then
-    echo "Installing nvm and Node.js..."
-    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh 2>/dev/null | bash
-    # Load nvm
-    \. "$NVM_DIR/nvm.sh" 2>/dev/null || true
-    # Install latest LTS Node.js
-    nvm install --lts 2>/dev/null || nvm install 20 2>/dev/null || true
-    # Set default
-    nvm alias default node 2>/dev/null || true
-    echo "✓ Node.js installed: $(node -v 2>/dev/null || echo 'install pending')"
-    echo "✓ npm installed: $(npm -v 2>/dev/null || echo 'install pending')"
+# Check if this is a fully cached container (has marker file)
+SPRINTY_SETUP_MARKER="/opt/.sprinty-setup-complete"
+if [[ -f "$SPRINTY_SETUP_MARKER" ]]; then
+    echo "=== Using cached container (fast startup) ==="
+    
+    # Just ensure paths are set up
+    export NVM_DIR="/root/.nvm"
+    [[ -s "$NVM_DIR/nvm.sh" ]] && \. "$NVM_DIR/nvm.sh" 2>/dev/null || true
+    [[ -f "/root/.cargo/env" ]] && source "/root/.cargo/env" 2>/dev/null || true
+    export PATH="/usr/local/go/bin:/usr/local/bin:$PATH"
 else
-    \. "$NVM_DIR/nvm.sh" 2>/dev/null || true
-    echo "✓ nvm already installed"
-fi
-
-# Add nvm to bashrc for interactive shells
-if ! grep -q "NVM_DIR" /root/.bashrc 2>/dev/null; then
-    cat >> /root/.bashrc << 'NVMRC'
+    echo "=== Setting up Sprinty in container (first run) ==="
+    
+    # Pre-configure timezone to avoid interactive prompt
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime 2>/dev/null || true
+    echo $TZ > /etc/timezone 2>/dev/null || true
+    
+    # Only install packages if not already present
+    if ! command -v jq &> /dev/null; then
+        echo "Installing base packages..."
+        apt-get update -qq 2>/dev/null || true
+        apt-get install -y -qq --no-install-recommends \
+            curl \
+            git \
+            jq \
+            tmux \
+            python3 \
+            python3-pip \
+            python3-venv \
+            python3-full \
+            pipx \
+            build-essential \
+            2>/dev/null || true
+    fi
+    
+    # Remove PEP 668 restriction (EXTERNALLY-MANAGED) to allow pip install without venv
+    # This is safe in a container environment where we want full flexibility
+    rm -f /usr/lib/python3.*/EXTERNALLY-MANAGED 2>/dev/null || true
+    
+    # Install uv (fast Python package manager) if not present
+    if ! command -v uv &> /dev/null; then
+        echo "Installing uv..."
+        curl -LsSf https://astral.sh/uv/install.sh 2>/dev/null | sh 2>/dev/null || true
+        if [[ -f "/root/.local/bin/uv" ]]; then
+            ln -sf /root/.local/bin/uv /usr/local/bin/uv 2>/dev/null || true
+            ln -sf /root/.local/bin/uvx /usr/local/bin/uvx 2>/dev/null || true
+        fi
+    fi
+    
+    # Install common test frameworks if not present
+    if ! python3 -c "import pytest" 2>/dev/null; then
+        pip install --quiet pytest pytest-cov 2>/dev/null || true
+    fi
+    
+    # ============================================================================
+    # INSTALL COMMON DEVELOPMENT ENVIRONMENTS (if not already installed)
+    # ============================================================================
+    
+    # --- Node.js via nvm ---
+    export NVM_DIR="/root/.nvm"
+    if [[ ! -d "$NVM_DIR" ]]; then
+        echo "Installing nvm and Node.js..."
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh 2>/dev/null | bash
+        \. "$NVM_DIR/nvm.sh" 2>/dev/null || true
+        nvm install --lts 2>/dev/null || nvm install 20 2>/dev/null || true
+        nvm alias default node 2>/dev/null || true
+    else
+        \. "$NVM_DIR/nvm.sh" 2>/dev/null || true
+    fi
+    
+    # Add nvm to bashrc for interactive shells
+    if ! grep -q "NVM_DIR" /root/.bashrc 2>/dev/null; then
+        cat >> /root/.bashrc << 'NVMRC'
 
 # NVM (Node Version Manager)
 export NVM_DIR="/root/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
 NVMRC
-fi
-
-# --- Go (optional, common for backend projects) ---
-if ! command -v go &> /dev/null; then
-    echo "Installing Go..."
-    GO_VERSION="1.22.0"
-    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" 2>/dev/null | tar -C /usr/local -xzf - 2>/dev/null || true
-    if [[ -d "/usr/local/go" ]]; then
-        ln -sf /usr/local/go/bin/go /usr/local/bin/go 2>/dev/null || true
-        ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt 2>/dev/null || true
-        echo "✓ Go installed: $(go version 2>/dev/null || echo 'install pending')"
     fi
-fi
-
-# --- Rust via rustup (optional, for Rust projects) ---
-if ! command -v cargo &> /dev/null; then
-    echo "Installing Rust..."
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs 2>/dev/null | sh -s -- -y 2>/dev/null || true
-    if [[ -f "/root/.cargo/env" ]]; then
-        source /root/.cargo/env
-        echo "✓ Rust installed: $(rustc --version 2>/dev/null || echo 'install pending')"
+    
+    # --- Go (optional, common for backend projects) ---
+    if ! command -v go &> /dev/null; then
+        echo "Installing Go..."
+        GO_VERSION="1.22.0"
+        curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" 2>/dev/null | tar -C /usr/local -xzf - 2>/dev/null || true
+        if [[ -d "/usr/local/go" ]]; then
+            ln -sf /usr/local/go/bin/go /usr/local/bin/go 2>/dev/null || true
+            ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt 2>/dev/null || true
+        fi
     fi
+    
+    # --- Rust via rustup (optional, for Rust projects) ---
+    if ! command -v cargo &> /dev/null; then
+        echo "Installing Rust..."
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs 2>/dev/null | sh -s -- -y 2>/dev/null || true
+    fi
+    [[ -f "/root/.cargo/env" ]] && source /root/.cargo/env 2>/dev/null || true
+    
+    # Add Rust to bashrc
+    if ! grep -q "cargo/env" /root/.bashrc 2>/dev/null; then
+        echo '[ -f "/root/.cargo/env" ] && source "/root/.cargo/env"' >> /root/.bashrc
+    fi
+    
+    # --- Common Python packages for data science/ML projects ---
+    if ! python3 -c "import numpy" 2>/dev/null; then
+        pip install --quiet numpy pandas requests 2>/dev/null || true
+    fi
+    
+    echo "✓ Development environments setup complete"
 fi
-
-# Add Rust to bashrc
-if ! grep -q "cargo/env" /root/.bashrc 2>/dev/null; then
-    echo '[ -f "/root/.cargo/env" ] && source "/root/.cargo/env"' >> /root/.bashrc
-fi
-
-# --- Common Python packages for data science/ML projects ---
-pip install --quiet numpy pandas requests 2>/dev/null || true
-
-echo "✓ Development environments setup complete"
 
 # ============================================================================
 
@@ -699,11 +746,11 @@ launch_container() {
     fi
     
     # Pass through important environment variables
+    # Note: Don't override HOME - Apptainer sets it automatically with --fakeroot
     local env_opts=(
         "--env" "CURSOR_MODEL=${CURSOR_MODEL:-opus-4.5-thinking}"
         "--env" "SPRINTY_IN_CONTAINER=true"
         "--env" "SPRINTY_CONTAINER_MODE=sandbox"
-        "--env" "HOME=/root"
     )
     
     # Pass cursor auth if available
