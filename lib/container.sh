@@ -79,7 +79,8 @@ has_nvidia_container_cli() {
 }
 
 # Get appropriate GPU flag for Apptainer
-# Returns: --nvccli for WSL (if available), --nv otherwise, empty if no GPU
+# Returns: --nvccli for WSL (if available), --nv for native Linux, empty if no GPU
+# Return codes: 0 = GPU available, 1 = no GPU, 2 = GPU found but missing nvidia-container-cli (WSL)
 get_gpu_flag() {
     if ! has_nvidia_gpu; then
         echo ""
@@ -87,19 +88,20 @@ get_gpu_flag() {
     fi
     
     if is_wsl; then
-        # WSL2 prefers --nvccli for proper NVIDIA GPU support
-        # but falls back to --nv if nvidia-container-cli is not installed
+        # WSL2 requires --nvccli for proper NVIDIA GPU support
         if has_nvidia_container_cli; then
             echo "--nvccli"
+            return 0
         else
-            # Fall back to --nv which also works on WSL2
-            echo "--nv"
+            # nvidia-container-cli not installed, GPU cannot be used
+            echo ""
+            return 2
         fi
     else
         # Native Linux uses --nv
         echo "--nv"
+        return 0
     fi
-    return 0
 }
 
 # ============================================================================
@@ -519,21 +521,25 @@ launch_container() {
     
     # Check for GPU support and get appropriate flag
     local gpu_opts=()
-    local gpu_flag=$(get_gpu_flag)
-    if [[ -n "$gpu_flag" ]]; then
+    local gpu_flag
+    gpu_flag=$(get_gpu_flag)
+    local gpu_status=$?
+    
+    if [[ $gpu_status -eq 0 && -n "$gpu_flag" ]]; then
         gpu_opts+=("$gpu_flag")
         if is_wsl; then
-            if [[ "$gpu_flag" == "--nvccli" ]]; then
-                log_status "INFO" "  GPU: NVIDIA (WSL2 with nvidia-container-cli)"
-            else
-                log_status "INFO" "  GPU: NVIDIA (WSL2 legacy mode, using $gpu_flag)"
-            fi
+            log_status "INFO" "  GPU: NVIDIA (WSL2 with nvidia-container-cli)"
         else
             log_status "INFO" "  GPU: NVIDIA (native Linux, using $gpu_flag)"
         fi
         # Add NVIDIA environment variables
         env_opts+=("--env" "NVIDIA_VISIBLE_DEVICES=all")
         env_opts+=("--env" "NVIDIA_DRIVER_CAPABILITIES=compute,utility")
+    elif [[ $gpu_status -eq 2 ]]; then
+        # WSL with GPU but missing nvidia-container-cli
+        log_status "WARN" "  GPU: NVIDIA detected but not available in container"
+        log_status "WARN" "       Please install nvidia-container-cli for GPU support:"
+        log_status "WARN" "       sudo apt-get install -y nvidia-container-toolkit"
     else
         log_status "INFO" "  GPU: Not available or not detected"
     fi
