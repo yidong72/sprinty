@@ -57,6 +57,40 @@ check_apptainer_installed() {
     fi
 }
 
+# Check if running under WSL
+is_wsl() {
+    if grep -qi microsoft /proc/version 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
+# Check if NVIDIA GPU is available
+has_nvidia_gpu() {
+    if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
+        return 0
+    fi
+    return 1
+}
+
+# Get appropriate GPU flag for Apptainer
+# Returns: --nvccli for WSL, --nv for native Linux, empty if no GPU
+get_gpu_flag() {
+    if ! has_nvidia_gpu; then
+        echo ""
+        return 1
+    fi
+    
+    if is_wsl; then
+        # WSL2 requires --nvccli for proper NVIDIA GPU support
+        echo "--nvccli"
+    else
+        # Native Linux uses --nv
+        echo "--nv"
+    fi
+    return 0
+}
+
 # ============================================================================
 # CONTAINER MANAGEMENT
 # ============================================================================
@@ -462,8 +496,32 @@ launch_container() {
     # --writable-tmpfs: Allow writes to container filesystem (temporary)
     # --fakeroot: Run as fake root inside container
     # --pid: Isolate process namespace
-    # --no-mount home,cwd,tmp: Don't auto-mount host directories (we mount explicitly)
-    # --containall: Full isolation (implies --contain --cleanenv)
+    # --no-mount home,cwd: Don't auto-mount host directories (we mount explicitly)
+    # --nv/--nvccli: Enable NVIDIA GPU support
+    
+    # Create a temporary directory for container's /tmp
+    local container_tmp=$(mktemp -d /tmp/sprinty-container-tmp.XXXXXX)
+    chmod 1777 "$container_tmp"
+    
+    # Add /tmp bind mount
+    bind_opts+=("--bind" "$container_tmp:/tmp")
+    
+    # Check for GPU support and get appropriate flag
+    local gpu_opts=()
+    local gpu_flag=$(get_gpu_flag)
+    if [[ -n "$gpu_flag" ]]; then
+        gpu_opts+=("$gpu_flag")
+        if is_wsl; then
+            log_status "INFO" "  GPU: NVIDIA (WSL2 mode, using $gpu_flag)"
+        else
+            log_status "INFO" "  GPU: NVIDIA (native Linux, using $gpu_flag)"
+        fi
+        # Add NVIDIA environment variables
+        env_opts+=("--env" "NVIDIA_VISIBLE_DEVICES=all")
+        env_opts+=("--env" "NVIDIA_DRIVER_CAPABILITIES=compute,utility")
+    else
+        log_status "INFO" "  GPU: Not available or not detected"
+    fi
     
     if [[ ${#sprinty_args[@]} -gt 0 ]]; then
         # Run with specific command
@@ -471,7 +529,8 @@ launch_container() {
             --writable-tmpfs \
             --fakeroot \
             --pid \
-            --no-mount home,cwd,tmp \
+            --no-mount home,cwd \
+            "${gpu_opts[@]}" \
             "${bind_opts[@]}" \
             "${env_opts[@]}" \
             --pwd "$CONTAINER_WORKSPACE" \
@@ -483,13 +542,17 @@ launch_container() {
             --writable-tmpfs \
             --fakeroot \
             --pid \
-            --no-mount home,cwd,tmp \
+            --no-mount home,cwd \
+            "${gpu_opts[@]}" \
             "${bind_opts[@]}" \
             "${env_opts[@]}" \
             --pwd "$CONTAINER_WORKSPACE" \
             "$use_image" \
             /bin/bash /tmp/setup.sh
     fi
+    
+    # Cleanup container temp directory
+    rm -rf "$container_tmp"
     
     local exit_code=$?
     
@@ -619,6 +682,9 @@ clear_container_cache() {
 
 export -f is_in_container
 export -f check_apptainer_installed
+export -f is_wsl
+export -f has_nvidia_gpu
+export -f get_gpu_flag
 export -f prepare_container
 export -f find_cursor_agent
 export -f launch_container
