@@ -116,6 +116,16 @@ check_cursor_agent() {
     fi
 }
 
+check_pexpect() {
+    if python3 -c "import pexpect" 2>/dev/null; then
+        print_success "pexpect installed (Python)"
+    else
+        print_warning "pexpect not installed (required for cursor-agent-wrapper)"
+        echo ""
+        echo "  Install with: pip install pexpect"
+    fi
+}
+
 check_dependencies() {
     print_step "Checking dependencies..."
     echo ""
@@ -126,6 +136,7 @@ check_dependencies() {
     check_jq || deps_ok=false
     check_git
     check_cursor_agent
+    check_pexpect
     
     echo ""
     
@@ -160,6 +171,14 @@ install_user() {
     cp -r "$SCRIPT_DIR/templates" "$lib_dir/"
     cp -r "$SCRIPT_DIR/prompts" "$lib_dir/"
     cp "$SCRIPT_DIR/sprinty.sh" "$lib_dir/"
+    
+    # Copy cursor-agent-wrapper.py
+    if [[ -f "$SCRIPT_DIR/cursor-agent-wrapper.py" ]]; then
+        cp "$SCRIPT_DIR/cursor-agent-wrapper.py" "$lib_dir/"
+        cp "$SCRIPT_DIR/cursor-agent-wrapper.py" "$bin_dir/"
+        chmod +x "$bin_dir/cursor-agent-wrapper.py"
+        chmod +x "$lib_dir/cursor-agent-wrapper.py"
+    fi
     
     # Make scripts executable
     chmod +x "$lib_dir/sprinty.sh"
@@ -203,6 +222,14 @@ install_global() {
     sudo cp -r "$SCRIPT_DIR/templates" "$lib_dir/"
     sudo cp -r "$SCRIPT_DIR/prompts" "$lib_dir/"
     sudo cp "$SCRIPT_DIR/sprinty.sh" "$lib_dir/"
+    
+    # Copy cursor-agent-wrapper.py
+    if [[ -f "$SCRIPT_DIR/cursor-agent-wrapper.py" ]]; then
+        sudo cp "$SCRIPT_DIR/cursor-agent-wrapper.py" "$lib_dir/"
+        sudo cp "$SCRIPT_DIR/cursor-agent-wrapper.py" "$bin_dir/"
+        sudo chmod +x "$bin_dir/cursor-agent-wrapper.py"
+        sudo chmod +x "$lib_dir/cursor-agent-wrapper.py"
+    fi
     
     # Make scripts executable
     sudo chmod +x "$lib_dir/sprinty.sh"
@@ -409,6 +436,9 @@ show_post_install() {
     local missing_deps=""
     if ! command -v cursor-agent &> /dev/null; then
         missing_deps="${missing_deps}\n  - cursor-agent: curl https://cursor.com/install -fsS | bash"
+    fi
+    if ! python3 -c "import pexpect" 2>/dev/null; then
+        missing_deps="${missing_deps}\n  - pexpect: pip install pexpect (required for cursor-agent-wrapper)"
     fi
     if ! command -v apptainer &> /dev/null && ! command -v singularity &> /dev/null; then
         missing_deps="${missing_deps}\n  - apptainer: sudo apt install apptainer (for container mode)"

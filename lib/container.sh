@@ -453,6 +453,27 @@ elif [[ -d "/host-bin" && -f "/host-bin/cursor-agent" ]]; then
     echo "✓ Linked cursor-agent from /host-bin"
 fi
 
+# Setup cursor-agent-wrapper.py (required for tool execution)
+echo "Setting up cursor-agent-wrapper.py..."
+
+# Install pexpect for the wrapper
+pip install --quiet pexpect 2>/dev/null || pip3 install --quiet pexpect 2>/dev/null || {
+    echo "⚠ Failed to install pexpect - cursor-agent-wrapper may not work"
+}
+
+# Copy wrapper from sprinty source
+if [[ -f "/opt/sprinty/cursor-agent-wrapper.py" ]]; then
+    cp /opt/sprinty/cursor-agent-wrapper.py /usr/local/bin/cursor-agent-wrapper.py
+    chmod +x /usr/local/bin/cursor-agent-wrapper.py
+    echo "✓ Installed cursor-agent-wrapper.py to /usr/local/bin/"
+elif [[ -f "/tmp/sprinty-source/cursor-agent-wrapper.py" ]]; then
+    cp /tmp/sprinty-source/cursor-agent-wrapper.py /usr/local/bin/cursor-agent-wrapper.py
+    chmod +x /usr/local/bin/cursor-agent-wrapper.py
+    echo "✓ Installed cursor-agent-wrapper.py to /usr/local/bin/"
+else
+    echo "⚠ cursor-agent-wrapper.py not found in sprinty source"
+fi
+
 # Setup cursor auth credentials
 if [[ -f "/root/.config/cursor/auth.json" ]]; then
     echo "✓ Cursor credentials mounted from host"
@@ -462,7 +483,7 @@ else
     echo "⚠ No cursor credentials found - may need to run: cursor-agent auth login"
 fi
 
-# Verify both agents are available
+# Verify agents are available
 echo ""
 echo "Agent CLI availability:"
 if command -v opencode &> /dev/null; then
@@ -476,6 +497,12 @@ if command -v cursor-agent &> /dev/null; then
 else
     echo "  ✗ cursor-agent: not found"
     echo "    (Install on host: curl https://cursor.com/install -fsS | bash)"
+fi
+
+if command -v cursor-agent-wrapper.py &> /dev/null; then
+    echo "  ✓ cursor-agent-wrapper.py: $(which cursor-agent-wrapper.py)"
+else
+    echo "  ✗ cursor-agent-wrapper.py: not found"
 fi
 
 # Copy sprinty to install location

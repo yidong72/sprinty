@@ -68,7 +68,8 @@ AGENT_TIMEOUT_MINUTES="${AGENT_TIMEOUT_MINUTES:-$(get_agent_timeout)}"
 AGENT_OUTPUT_FORMAT="${AGENT_OUTPUT_FORMAT:-text}"
 
 # Legacy cursor-agent variables (for backward compatibility)
-CURSOR_AGENT_CMD="${CURSOR_AGENT_CMD:-cursor-agent}"
+# Use cursor-agent-wrapper.py for proper tool execution support
+CURSOR_AGENT_CMD="${CURSOR_AGENT_CMD:-cursor-agent-wrapper.py}"
 CURSOR_OUTPUT_FORMAT="${CURSOR_OUTPUT_FORMAT:-$AGENT_OUTPUT_FORMAT}"
 CURSOR_MODEL="${CURSOR_MODEL:-$AGENT_MODEL}"
 CURSOR_CONFIG_DIR=".cursor"
@@ -193,9 +194,20 @@ execute_agent_raw() {
 # ============================================================================
 
 # Check if cursor-agent CLI is installed
+# This checks both the wrapper (cursor-agent-wrapper.py) and the underlying cursor-agent
 check_cursor_agent_installed() {
+    # First check if cursor-agent-wrapper.py is available
     if ! command -v "$CURSOR_AGENT_CMD" &> /dev/null; then
-        log_status "ERROR" "cursor-agent CLI not found"
+        log_status "ERROR" "cursor-agent-wrapper.py not found"
+        echo "" >&2
+        echo "Make sure sprinty is properly installed with cursor-agent-wrapper.py" >&2
+        echo "Re-run: ./install.sh" >&2
+        return 1
+    fi
+    
+    # Also check that the underlying cursor-agent is installed
+    if ! command -v cursor-agent &> /dev/null; then
+        log_status "ERROR" "cursor-agent CLI not found (required by wrapper)"
         echo "" >&2
         echo "Install cursor-agent with:" >&2
         echo "  curl https://cursor.com/install -fsS | bash" >&2
@@ -204,13 +216,24 @@ check_cursor_agent_installed() {
         echo "  source ~/.bashrc  # or ~/.zshrc" >&2
         return 1
     fi
+    
+    # Check that pexpect is installed (required by wrapper)
+    if ! python3 -c "import pexpect" 2>/dev/null; then
+        log_status "ERROR" "pexpect Python module not found (required by wrapper)"
+        echo "" >&2
+        echo "Install pexpect with:" >&2
+        echo "  pip install pexpect" >&2
+        return 1
+    fi
+    
     return 0
 }
 
 # Get cursor-agent version
 get_cursor_agent_version() {
     if check_cursor_agent_installed 2>/dev/null; then
-        "$CURSOR_AGENT_CMD" --version 2>/dev/null || echo "unknown"
+        # Get version from underlying cursor-agent, not the wrapper
+        cursor-agent --version 2>/dev/null || echo "unknown"
     else
         echo "not installed"
     fi
@@ -497,21 +520,17 @@ execute_cursor_agent() {
         return 1
     }
     
-    # Build cursor-agent command arguments
-    local cmd_args=("-p")
+    # Build cursor-agent-wrapper command arguments
+    # Wrapper expects: --model <model> -p "<prompt>"
+    local cmd_args=()
     
-    # Add model if specified
+    # Add model if specified (must come before -p for wrapper)
     if [[ -n "$CURSOR_MODEL" ]]; then
         cmd_args+=("--model" "$CURSOR_MODEL")
     fi
     
-    # Add output format if specified
-    if [[ -n "$CURSOR_OUTPUT_FORMAT" && "$CURSOR_OUTPUT_FORMAT" != "text" ]]; then
-        cmd_args+=("--output-format" "$CURSOR_OUTPUT_FORMAT")
-    fi
-    
-    # Add the prompt as the final argument
-    cmd_args+=("$prompt_content")
+    # Add the prompt with -p flag
+    cmd_args+=("-p" "$prompt_content")
     
     # Retry loop for transient failures
     local attempt=0
@@ -614,13 +633,15 @@ execute_cursor_agent_raw() {
     local output_file=$2
     local timeout_seconds=${3:-$((CURSOR_TIMEOUT_MINUTES * 60))}
     
-    local cmd_args=("-p")
+    # Build cursor-agent-wrapper command arguments
+    # Wrapper expects: --model <model> -p "<prompt>"
+    local cmd_args=()
     
     if [[ -n "$CURSOR_MODEL" ]]; then
         cmd_args+=("--model" "$CURSOR_MODEL")
     fi
     
-    cmd_args+=("$prompt_string")
+    cmd_args+=("-p" "$prompt_string")
     
     # Use || to prevent set -e from exiting the script
     local exit_code=0
