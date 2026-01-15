@@ -86,22 +86,32 @@ jq '(.items[] | select(.id == "TASK-001")).status = "qa_failed" | (.items[] | se
 2. **Edge cases** - Does it handle unusual inputs?
 3. **Error handling** - Are errors handled gracefully?
 4. **Tests exist** - Are there tests covering the AC?
-5. **Tests pass** - Do all tests pass?
+5. **Tests pass** - Do all tests ACTUALLY pass when you run them?
 
-### Verification Methods
-```bash
-# Run unit tests
-npm test
-pytest
-bats tests/unit/
+### CRITICAL: You MUST Actually Run Tests
 
-# Check coverage
-npm run coverage
-pytest --cov
+**Code review alone is NOT sufficient for QA.** You must:
+1. **Check the project's README or documentation** for test instructions
+2. **Install project dependencies** before running tests
+3. **Run the actual test commands** for this project
+4. **See the test output** with pass/fail results
+5. **Only report "PASSING" if tests actually passed**
 
-# Manual verification (read code, check behavior)
-cat src/feature.js
-```
+### How to Find Test Instructions
+
+1. Check `README.md` for test commands
+2. Look for test config files: `pyproject.toml`, `package.json`, `Makefile`, `Cargo.toml`, etc.
+3. Look for a `tests/` or `test/` directory
+
+### If Tests Won't Run
+
+If you get errors like "command not found" or "module not found":
+1. **Install project dependencies** (check README for instructions)
+2. **Install the test framework** if not included in dependencies
+3. **Try again**
+
+**DO NOT claim "tests_status: PASSING" based on code review!**
+**DO NOT claim tests pass if you couldn't run them!**
 
 ## Bug Task Creation
 

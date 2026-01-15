@@ -260,8 +260,96 @@ apt-get install -y -qq --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \
+    python3-full \
+    pipx \
     build-essential \
     2>/dev/null || true
+
+# Remove PEP 668 restriction (EXTERNALLY-MANAGED) to allow pip install without venv
+# This is safe in a container environment where we want full flexibility
+rm -f /usr/lib/python3.*/EXTERNALLY-MANAGED 2>/dev/null || true
+echo "✓ Removed Python externally-managed restriction (PEP 668)"
+
+# Install uv (fast Python package manager)
+echo "Installing uv..."
+curl -LsSf https://astral.sh/uv/install.sh 2>/dev/null | sh 2>/dev/null || true
+if [[ -f "/root/.local/bin/uv" ]]; then
+    ln -sf /root/.local/bin/uv /usr/local/bin/uv 2>/dev/null || true
+    ln -sf /root/.local/bin/uvx /usr/local/bin/uvx 2>/dev/null || true
+    echo "✓ uv installed: $(uv --version 2>/dev/null || echo 'install pending')"
+fi
+
+# Install common test frameworks so agents can run tests immediately
+pip install --quiet pytest pytest-cov 2>/dev/null || true
+
+# ============================================================================
+# INSTALL COMMON DEVELOPMENT ENVIRONMENTS
+# ============================================================================
+
+echo "Installing common development environments..."
+
+# --- Node.js via nvm ---
+export NVM_DIR="/root/.nvm"
+if [[ ! -d "$NVM_DIR" ]]; then
+    echo "Installing nvm and Node.js..."
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh 2>/dev/null | bash
+    # Load nvm
+    \. "$NVM_DIR/nvm.sh" 2>/dev/null || true
+    # Install latest LTS Node.js
+    nvm install --lts 2>/dev/null || nvm install 20 2>/dev/null || true
+    # Set default
+    nvm alias default node 2>/dev/null || true
+    echo "✓ Node.js installed: $(node -v 2>/dev/null || echo 'install pending')"
+    echo "✓ npm installed: $(npm -v 2>/dev/null || echo 'install pending')"
+else
+    \. "$NVM_DIR/nvm.sh" 2>/dev/null || true
+    echo "✓ nvm already installed"
+fi
+
+# Add nvm to bashrc for interactive shells
+if ! grep -q "NVM_DIR" /root/.bashrc 2>/dev/null; then
+    cat >> /root/.bashrc << 'NVMRC'
+
+# NVM (Node Version Manager)
+export NVM_DIR="/root/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+NVMRC
+fi
+
+# --- Go (optional, common for backend projects) ---
+if ! command -v go &> /dev/null; then
+    echo "Installing Go..."
+    GO_VERSION="1.22.0"
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" 2>/dev/null | tar -C /usr/local -xzf - 2>/dev/null || true
+    if [[ -d "/usr/local/go" ]]; then
+        ln -sf /usr/local/go/bin/go /usr/local/bin/go 2>/dev/null || true
+        ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt 2>/dev/null || true
+        echo "✓ Go installed: $(go version 2>/dev/null || echo 'install pending')"
+    fi
+fi
+
+# --- Rust via rustup (optional, for Rust projects) ---
+if ! command -v cargo &> /dev/null; then
+    echo "Installing Rust..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs 2>/dev/null | sh -s -- -y 2>/dev/null || true
+    if [[ -f "/root/.cargo/env" ]]; then
+        source /root/.cargo/env
+        echo "✓ Rust installed: $(rustc --version 2>/dev/null || echo 'install pending')"
+    fi
+fi
+
+# Add Rust to bashrc
+if ! grep -q "cargo/env" /root/.bashrc 2>/dev/null; then
+    echo '[ -f "/root/.cargo/env" ] && source "/root/.cargo/env"' >> /root/.bashrc
+fi
+
+# --- Common Python packages for data science/ML projects ---
+pip install --quiet numpy pandas requests 2>/dev/null || true
+
+echo "✓ Development environments setup complete"
+
+# ============================================================================
 
 # Setup opencode from mounted host installation or install it
 if [[ -d "/host-bin" && -f "/host-bin/opencode" ]]; then
@@ -725,51 +813,57 @@ You are running in a **sandboxed container environment**. This means:
 - You can run **any commands** without restriction
 - Changes outside /workspace are temporary (reset on container restart)
 
+### Pre-installed Development Environments
+
+The following are **already installed** and ready to use:
+
+| Language | Tools Available | Test Command |
+|----------|-----------------|--------------|
+| **Python** | python3, pip, uv, pytest, pytest-cov, numpy, pandas | `pytest -v` |
+| **Node.js** | node (via nvm), npm | `npm test` |
+| **Go** | go | `go test -v ./...` |
+| **Rust** | rustc, cargo | `cargo test` |
+| **System** | curl, git, jq, build-essential | - |
+
+**Tip:** Use `uv` instead of `pip` for faster package installation:
+```bash
+uv pip install -r requirements.txt  # 10-100x faster than pip
+```
+
 ### Workspace
 - Your working directory is `/workspace`
 - This is mounted from the host system
 - All project files should be here
 - Changes here persist to the host
 
-### Installing Dependencies
+### Running Tests (MANDATORY)
 
-**Feel free to install ANY dependency libraries needed to make your code work and tests pass.**
+**You MUST actually run tests, not just review code.**
+
+1. **Check the project's README** for test instructions
+2. **Install project dependencies** first
+3. **Run the project's test command**
+4. **Verify all tests pass** before reporting success
+
+### Installing Additional Dependencies
+
+If you need additional packages:
 
 ```bash
-# System packages (build tools, libraries, etc.)
-apt-get update && apt-get install -y build-essential curl git jq
+# Python packages
+pip install <package>
 
-# Python: Install packages and test tools
-pip install pytest pytest-cov requests flask numpy pandas
+# Node.js packages
+npm install <package>
 
-# Node.js: Install packages
-npm install           # Install from package.json
-npm install jest --save-dev
+# System packages
+apt-get update && apt-get install -y <package>
 
-# Rust: Add crates
-cargo add serde tokio
+# Rust crates
+cargo add <crate>
 
-# Go: Get modules
-go mod tidy
-go get github.com/stretchr/testify
-```
-
-### Example: Setting Up a Python Project
-```bash
-apt-get update && apt-get install -y python3-pip python3-venv
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt  # If exists
-pip install pytest pytest-cov    # For testing
-pytest -v                        # Run tests
-```
-
-### Example: Setting Up a Node.js Project
-```bash
-apt-get update && apt-get install -y nodejs npm
-npm install                      # Install dependencies
-npm install --save-dev jest      # Add test framework
-npm test                         # Run tests
+# Go modules
+go get <module>
 ```
 
 ### No Restrictions

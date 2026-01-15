@@ -114,31 +114,32 @@ cat backlog.json | jq '.items[] | select(.id == "TASK-001")'
 - Handle errors gracefully
 
 ### Testing Requirements
+
+**CRITICAL: You MUST actually RUN the tests, not just write them.**
+
 - **Unit tests are mandatory** for all new code
 - Minimum 85% code coverage for new code
 - Test both success and failure scenarios
 - Test edge cases and boundary conditions
-- All tests must pass before marking `implemented`
+- **All tests must ACTUALLY PASS before marking `implemented`**
+- **"tests_status: PASSING" means you ran the tests and saw them pass**
+- **Code review alone is NOT sufficient** - tests must be executed
 
-### Common Test Commands
-```bash
-# JavaScript/TypeScript
-npm test
-npm run test:coverage
+### How to Run Tests
 
-# Python
-pytest
-pytest --cov=src tests/
+1. **Check the project's README or documentation** for test instructions
+2. **Look for common test config files**: `pyproject.toml`, `package.json`, `Makefile`, `Cargo.toml`, etc.
+3. **Install project dependencies first** before running tests
+4. **Run the project's test command** and verify all tests pass
 
-# Bash
-bats tests/unit/
+### If Tests Fail to Run
 
-# Go
-go test ./...
+If you get "command not found" or dependency errors:
+1. **Install project dependencies** (check README for instructions)
+2. **Install the test framework** if not included in dependencies
+3. Then run the tests again
 
-# Rust
-cargo test
-```
+**DO NOT claim "tests_status: PASSING" if you didn't actually run the tests!**
 
 ## Breaking Down Large Tasks
 
