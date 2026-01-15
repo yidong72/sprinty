@@ -720,7 +720,7 @@ You are running in a **sandboxed container environment**. This means:
 
 ### Full System Access
 - You have **root access** inside the container
-- You can **install any packages** needed (apt, pip, npm, etc.)
+- You can **install any packages** needed (apt, pip, npm, cargo, etc.)
 - You can **modify or delete any files** in /workspace
 - You can run **any commands** without restriction
 - Changes outside /workspace are temporary (reset on container restart)
@@ -732,22 +732,51 @@ You are running in a **sandboxed container environment**. This means:
 - Changes here persist to the host
 
 ### Installing Dependencies
+
+**Feel free to install ANY dependency libraries needed to make your code work and tests pass.**
+
 ```bash
-# System packages
-apt-get update && apt-get install -y <package>
+# System packages (build tools, libraries, etc.)
+apt-get update && apt-get install -y build-essential curl git jq
 
-# Python packages
-pip install <package>
+# Python: Install packages and test tools
+pip install pytest pytest-cov requests flask numpy pandas
 
-# Node packages
-npm install -g <package>
+# Node.js: Install packages
+npm install           # Install from package.json
+npm install jest --save-dev
+
+# Rust: Add crates
+cargo add serde tokio
+
+# Go: Get modules
+go mod tidy
+go get github.com/stretchr/testify
+```
+
+### Example: Setting Up a Python Project
+```bash
+apt-get update && apt-get install -y python3-pip python3-venv
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt  # If exists
+pip install pytest pytest-cov    # For testing
+pytest -v                        # Run tests
+```
+
+### Example: Setting Up a Node.js Project
+```bash
+apt-get update && apt-get install -y nodejs npm
+npm install                      # Install dependencies
+npm install --save-dev jest      # Add test framework
+npm test                         # Run tests
 ```
 
 ### No Restrictions
 Since you're in a sandbox:
-- Feel free to experiment
+- Feel free to experiment and install any tools
 - Delete files if needed for cleanup
-- Install whatever tools help get the job done
+- Install whatever helps get the job done
 - Run any commands necessary
 - No need to worry about system safety
 EOF
