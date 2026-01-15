@@ -73,8 +73,13 @@ has_nvidia_gpu() {
     return 1
 }
 
+# Check if nvidia-container-cli is available
+has_nvidia_container_cli() {
+    command -v nvidia-container-cli &> /dev/null
+}
+
 # Get appropriate GPU flag for Apptainer
-# Returns: --nvccli for WSL, --nv for native Linux, empty if no GPU
+# Returns: --nvccli for WSL (if available), --nv otherwise, empty if no GPU
 get_gpu_flag() {
     if ! has_nvidia_gpu; then
         echo ""
@@ -82,8 +87,14 @@ get_gpu_flag() {
     fi
     
     if is_wsl; then
-        # WSL2 requires --nvccli for proper NVIDIA GPU support
-        echo "--nvccli"
+        # WSL2 prefers --nvccli for proper NVIDIA GPU support
+        # but falls back to --nv if nvidia-container-cli is not installed
+        if has_nvidia_container_cli; then
+            echo "--nvccli"
+        else
+            # Fall back to --nv which also works on WSL2
+            echo "--nv"
+        fi
     else
         # Native Linux uses --nv
         echo "--nv"
@@ -512,7 +523,11 @@ launch_container() {
     if [[ -n "$gpu_flag" ]]; then
         gpu_opts+=("$gpu_flag")
         if is_wsl; then
-            log_status "INFO" "  GPU: NVIDIA (WSL2 mode, using $gpu_flag)"
+            if [[ "$gpu_flag" == "--nvccli" ]]; then
+                log_status "INFO" "  GPU: NVIDIA (WSL2 with nvidia-container-cli)"
+            else
+                log_status "INFO" "  GPU: NVIDIA (WSL2 legacy mode, using $gpu_flag)"
+            fi
         else
             log_status "INFO" "  GPU: NVIDIA (native Linux, using $gpu_flag)"
         fi
@@ -684,6 +699,7 @@ export -f is_in_container
 export -f check_apptainer_installed
 export -f is_wsl
 export -f has_nvidia_gpu
+export -f has_nvidia_container_cli
 export -f get_gpu_flag
 export -f prepare_container
 export -f find_cursor_agent
