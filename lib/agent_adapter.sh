@@ -498,7 +498,8 @@ execute_cursor_agent() {
     }
     
     # Build cursor-agent command arguments
-    local cmd_args=("-p")
+    # -f (force) allows commands without prompting, -p (print) for non-interactive use
+    local cmd_args=("-f" "-p")
     
     # Add model if specified
     if [[ -n "$CURSOR_MODEL" ]]; then
@@ -614,7 +615,8 @@ execute_cursor_agent_raw() {
     local output_file=$2
     local timeout_seconds=${3:-$((CURSOR_TIMEOUT_MINUTES * 60))}
     
-    local cmd_args=("-p")
+    # -f (force) allows commands without prompting, -p (print) for non-interactive use
+    local cmd_args=("-f" "-p")
     
     if [[ -n "$CURSOR_MODEL" ]]; then
         cmd_args+=("--model" "$CURSOR_MODEL")
