@@ -19,7 +19,7 @@ CALL_COUNT_FILE="$RATE_LIMIT_DIR/.call_count"
 TIMESTAMP_FILE="$RATE_LIMIT_DIR/.last_reset"
 RATE_LIMIT_STATE_FILE="$RATE_LIMIT_DIR/.rate_limit_state"
 
-# Default limits (can be overridden via config)
+# Default limits (can be overridden via config or environment)
 MAX_CALLS_PER_HOUR=${MAX_CALLS_PER_HOUR:-100}
 RATE_LIMIT_WINDOW_SECONDS=${RATE_LIMIT_WINDOW_SECONDS:-3600}  # 1 hour
 
@@ -27,9 +27,28 @@ RATE_LIMIT_WINDOW_SECONDS=${RATE_LIMIT_WINDOW_SECONDS:-3600}  # 1 hour
 # INITIALIZATION
 # ============================================================================
 
+# Load rate limit from config file
+load_rate_limit_from_config() {
+    local config_file="${SPRINTY_DIR:-${PWD}/.sprinty}/config.json"
+    if [[ -f "$config_file" ]]; then
+        local config_value=$(jq -r '.rate_limiting.max_calls_per_hour // empty' "$config_file" 2>/dev/null)
+        if [[ -n "$config_value" && "$config_value" != "null" ]]; then
+            MAX_CALLS_PER_HOUR=$config_value
+        fi
+        
+        local wait_value=$(jq -r '.rate_limiting.wait_between_calls_seconds // empty' "$config_file" 2>/dev/null)
+        if [[ -n "$wait_value" && "$wait_value" != "null" ]]; then
+            RATE_LIMIT_WAIT_SECONDS=$wait_value
+        fi
+    fi
+}
+
 # Initialize rate limiting tracking
 init_rate_limiter() {
     ensure_sprinty_dir
+    
+    # Load config values
+    load_rate_limit_from_config
     
     local current_hour=$(date +%Y%m%d%H)
     local last_reset_hour=""

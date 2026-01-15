@@ -263,6 +263,37 @@ apt-get install -y -qq --no-install-recommends \
     build-essential \
     2>/dev/null || true
 
+# Setup opencode from mounted host installation or install it
+if [[ -d "/host-bin" && -f "/host-bin/opencode" ]]; then
+    echo "Using opencode from host bin..."
+    ln -sf /host-bin/opencode /usr/local/bin/opencode
+    echo "✓ Linked opencode from /host-bin"
+elif command -v opencode &> /dev/null; then
+    echo "✓ opencode already available: $(which opencode)"
+else
+    echo "Installing opencode..."
+    # Install opencode in container
+    if curl -fsSL https://opencode.ai/install | bash 2>&1 | grep -v "^$"; then
+        # Source the shell config to get opencode in PATH
+        if [[ -f "/root/.bashrc" ]]; then
+            source /root/.bashrc 2>/dev/null || true
+        fi
+        if command -v opencode &> /dev/null; then
+            echo "✓ opencode installed: $(which opencode)"
+        else
+            # Try to find it manually
+            if [[ -f "/root/.local/bin/opencode" ]]; then
+                ln -sf /root/.local/bin/opencode /usr/local/bin/opencode
+                echo "✓ opencode installed: /usr/local/bin/opencode"
+            else
+                echo "⚠ opencode installation may have failed"
+            fi
+        fi
+    else
+        echo "⚠ Failed to install opencode - will try to use from host mount"
+    fi
+fi
+
 # Setup cursor-agent from mounted host installation
 if [[ -d "/opt/cursor-agent" ]]; then
     echo "Using cursor-agent from host mount..."
@@ -279,12 +310,12 @@ if [[ -d "/opt/cursor-agent" ]]; then
     if [[ -n "$CURSOR_BIN" && -f "$CURSOR_BIN" ]]; then
         ln -sf "$CURSOR_BIN" /usr/local/bin/cursor-agent
         chmod +x /usr/local/bin/cursor-agent 2>/dev/null || true
-        echo "Linked cursor-agent: $CURSOR_BIN → /usr/local/bin/cursor-agent"
+        echo "✓ Linked cursor-agent: $CURSOR_BIN → /usr/local/bin/cursor-agent"
     fi
 elif [[ -d "/host-bin" && -f "/host-bin/cursor-agent" ]]; then
     echo "Using cursor-agent from host bin..."
     ln -sf /host-bin/cursor-agent /usr/local/bin/cursor-agent
-    echo "Linked cursor-agent from /host-bin"
+    echo "✓ Linked cursor-agent from /host-bin"
 fi
 
 # Setup cursor auth credentials
@@ -296,12 +327,20 @@ else
     echo "⚠ No cursor credentials found - may need to run: cursor-agent auth login"
 fi
 
-# Verify cursor-agent is available
-if command -v cursor-agent &> /dev/null; then
-    echo "✓ cursor-agent available: $(which cursor-agent)"
+# Verify both agents are available
+echo ""
+echo "Agent CLI availability:"
+if command -v opencode &> /dev/null; then
+    echo "  ✓ opencode: $(which opencode)"
 else
-    echo "⚠ cursor-agent not found - some features may not work"
-    echo "  Install on host: npm install -g @anthropic/cursor-agent"
+    echo "  ✗ opencode: not found"
+fi
+
+if command -v cursor-agent &> /dev/null; then
+    echo "  ✓ cursor-agent: $(which cursor-agent)"
+else
+    echo "  ✗ cursor-agent: not found"
+    echo "    (Install on host: curl https://cursor.com/install -fsS | bash)"
 fi
 
 # Copy sprinty to install location
@@ -329,7 +368,6 @@ echo ""
 echo "=== Container setup complete ==="
 echo "Working directory: /workspace"
 echo "Sprinty: $(which sprinty 2>/dev/null || echo 'not found')"
-echo "Cursor-agent: $(which cursor-agent 2>/dev/null || echo 'not found')"
 echo ""
 
 # If arguments provided, run sprinty
@@ -341,6 +379,43 @@ fi
 SETUP_SCRIPT
     
     chmod +x "$setup_script"
+}
+
+# Find opencode installation on host
+find_opencode() {
+    local opencode_bin=""
+    local opencode_dir=""
+    
+    # Find opencode binary
+    if command -v opencode &> /dev/null; then
+        opencode_bin=$(command -v opencode)
+        # Resolve symlink to find actual installation
+        if [[ -L "$opencode_bin" ]]; then
+            local real_path=$(readlink -f "$opencode_bin" 2>/dev/null || realpath "$opencode_bin" 2>/dev/null)
+            opencode_dir=$(dirname "$real_path")
+        else
+            opencode_dir=$(dirname "$opencode_bin")
+        fi
+    fi
+    
+    # Also check common locations
+    if [[ -z "$opencode_dir" ]]; then
+        local search_paths=(
+            "$HOME/.local/bin"
+            "$HOME/.opencode"
+            "/usr/local/bin"
+            "/opt/opencode"
+        )
+        for path in "${search_paths[@]}"; do
+            if [[ -f "$path/opencode" ]]; then
+                opencode_bin="$path/opencode"
+                opencode_dir="$path"
+                break
+            fi
+        done
+    fi
+    
+    echo "$opencode_bin|$opencode_dir"
 }
 
 # Find cursor-agent installation on host
@@ -422,6 +497,11 @@ launch_container() {
         return 1
     }
     
+    # Find opencode
+    local opencode_info=$(find_opencode)
+    local opencode_bin="${opencode_info%%|*}"
+    local opencode_dir="${opencode_info##*|}"
+    
     # Find cursor-agent
     local cursor_info=$(find_cursor_agent)
     local cursor_agent_bin="${cursor_info%%|*}"
@@ -445,6 +525,27 @@ launch_container() {
         "--bind" "$setup_script:/tmp/setup.sh:ro"
     )
     
+    # Mount opencode if found (check opencode_bin first to avoid mounting empty directories)
+    if [[ -n "$opencode_bin" && -f "$opencode_bin" ]]; then
+        local bin_dir=$(dirname "$opencode_bin")
+        # Create a combined host-bin directory if not already mounting one
+        if [[ -d "$bin_dir" ]]; then
+            # Check if we're already mounting this directory
+            local already_mounted=false
+            for opt in "${bind_opts[@]}"; do
+                if [[ "$opt" == *"$bin_dir"* ]]; then
+                    already_mounted=true
+                    break
+                fi
+            done
+            
+            if [[ "$already_mounted" == "false" ]]; then
+                bind_opts+=("--bind" "$bin_dir:/host-bin:ro")
+                log_status "INFO" "  OpenCode: $opencode_bin → /host-bin/opencode"
+            fi
+        fi
+    fi
+    
     # Mount cursor-agent if found
     if [[ -n "$cursor_agent_dir" && -d "$cursor_agent_dir" ]]; then
         # Mount the entire cursor-agent installation directory
@@ -452,14 +553,35 @@ launch_container() {
         log_status "INFO" "  Cursor-agent: $cursor_agent_dir → /opt/cursor-agent"
     fi
     
-    # Also mount the binary symlink location if different
+    # Also mount the cursor-agent binary symlink location if different and not already mounted
     if [[ -n "$cursor_agent_bin" && -f "$cursor_agent_bin" ]]; then
         local bin_dir=$(dirname "$cursor_agent_bin")
-        # Mount entire .local/bin if that's where it is
-        if [[ "$bin_dir" == *".local/bin"* && -d "$bin_dir" ]]; then
+        # Check if already mounted
+        local already_mounted=false
+        for opt in "${bind_opts[@]}"; do
+            if [[ "$opt" == *"$bin_dir"* && "$opt" == *"/host-bin"* ]]; then
+                already_mounted=true
+                break
+            fi
+        done
+        
+        if [[ "$already_mounted" == "false" && -d "$bin_dir" ]]; then
             bind_opts+=("--bind" "$bin_dir:/host-bin:ro")
             log_status "INFO" "  Host bin: $bin_dir → /host-bin"
         fi
+    fi
+    
+    # Mount opencode auth/config if they exist
+    local opencode_auth_file="$HOME/.local/share/opencode/auth.json"
+    if [[ -f "$opencode_auth_file" ]]; then
+        bind_opts+=("--bind" "$opencode_auth_file:/root/.local/share/opencode/auth.json:ro")
+        log_status "INFO" "  OpenCode auth: $opencode_auth_file → /root/.local/share/opencode/auth.json"
+    fi
+    
+    local opencode_config_dir="$HOME/.config/opencode"
+    if [[ -d "$opencode_config_dir" ]]; then
+        bind_opts+=("--bind" "$opencode_config_dir:/root/.config/opencode:ro")
+        log_status "INFO" "  OpenCode config: $opencode_config_dir → /root/.config/opencode"
     fi
     
     # Mount cursor auth credentials if they exist
@@ -708,6 +830,7 @@ export -f has_nvidia_gpu
 export -f has_nvidia_container_cli
 export -f get_gpu_flag
 export -f prepare_container
+export -f find_opencode
 export -f find_cursor_agent
 export -f launch_container
 export -f get_container_prompt_additions

@@ -166,9 +166,9 @@ analyze_output_for_completion() {
     
     local signals_found=0
     
-    # Check for PROJECT_DONE: true in SPRINTY_STATUS block
-    if grep -q "PROJECT_DONE:.*true" "$output_file" 2>/dev/null; then
-        record_done_signal "$loop_number" "sprinty_status_block"
+    # Check for PROJECT_DONE: true (enhanced check - file-based with text fallback)
+    if check_project_done_enhanced "$output_file"; then
+        record_done_signal "$loop_number" "project_done_signal"
         signals_found=$((signals_found + 1))
     fi
     
@@ -179,7 +179,7 @@ analyze_output_for_completion() {
     # Keyword matching is unreliable and causes false positives (e.g., "Sprint 1 complete"
     # being interpreted as "project complete"). Instead, we rely on:
     # 1. Actual backlog state (check_backlog_completion) - most reliable
-    # 2. Explicit PROJECT_DONE: true signal from agent
+    # 2. Explicit PROJECT_DONE: true signal from agent (via status.json or text)
     # 3. Idle loop detection (no progress being made)
     
     # Detect test-only loop patterns
@@ -282,11 +282,14 @@ should_exit_gracefully() {
     
     # First, check hard completion criteria
     
-    # 1. Backlog complete
+    # 1. Backlog complete - but ONLY exit if Final QA has also passed
     if check_backlog_completion; then
         # Double-check with fix plan if it exists
         if has_remaining_fix_plan_work; then
             log_debug "Backlog complete but fix plan has remaining work - continuing"
+        elif ! has_final_qa_passed; then
+            # Backlog complete but Final QA not passed - don't exit yet
+            log_debug "Backlog complete but Final QA Sprint not yet passed - continuing"
         else
             echo "backlog_complete"
             return 0
@@ -352,12 +355,91 @@ should_exit_gracefully() {
     return 1
 }
 
+# Check if Final QA Sprint has passed
+has_final_qa_passed() {
+    local state_file="${SPRINTY_DIR:-${PWD}/.sprinty}/sprint_state.json"
+    if [[ ! -f "$state_file" ]]; then
+        return 1
+    fi
+    
+    local final_qa_status=$(jq -r '.final_qa_status // "not_run"' "$state_file" 2>/dev/null)
+    [[ "$final_qa_status" == "passed" ]]
+}
+
+# Check if Final QA Sprint is needed (all tasks done but Final QA not passed)
+needs_final_qa_sprint() {
+    if ! is_backlog_initialized; then
+        return 1  # No backlog yet
+    fi
+    
+    # Check if all regular tasks are done
+    if ! check_backlog_completion; then
+        return 1  # Still have tasks to complete
+    fi
+    
+    # Check if Final QA has already passed
+    if has_final_qa_passed; then
+        return 1  # Already passed
+    fi
+    
+    # Check retry limit to prevent infinite loops
+    local max_final_qa_attempts=${MAX_FINAL_QA_ATTEMPTS:-3}
+    local attempts=$(get_final_qa_attempts)
+    if [[ $attempts -ge $max_final_qa_attempts ]]; then
+        log_status "WARN" "Final QA Sprint max attempts reached ($attempts/$max_final_qa_attempts)"
+        return 1  # Don't retry anymore
+    fi
+    
+    # Final QA is needed
+    return 0
+}
+
+# Get number of Final QA Sprint attempts
+get_final_qa_attempts() {
+    local state_file="${SPRINTY_DIR:-${PWD}/.sprinty}/sprint_state.json"
+    if [[ -f "$state_file" ]]; then
+        jq -r '.final_qa_attempts // 0' "$state_file" 2>/dev/null || echo "0"
+    else
+        echo "0"
+    fi
+}
+
+# Increment Final QA Sprint attempt counter
+increment_final_qa_attempts() {
+    local state_file="${SPRINTY_DIR:-${PWD}/.sprinty}/sprint_state.json"
+    if [[ -f "$state_file" ]]; then
+        local current=$(get_final_qa_attempts)
+        jq --argjson attempts "$((current + 1))" '.final_qa_attempts = $attempts' \
+            "$state_file" > "${state_file}.tmp" && mv "${state_file}.tmp" "$state_file"
+    fi
+}
+
+# Reset Final QA Sprint attempt counter (call when bugs are fixed)
+reset_final_qa_attempts() {
+    local state_file="${SPRINTY_DIR:-${PWD}/.sprinty}/sprint_state.json"
+    if [[ -f "$state_file" ]]; then
+        jq '.final_qa_attempts = 0' "$state_file" > "${state_file}.tmp" && mv "${state_file}.tmp" "$state_file"
+    fi
+}
+
+# Mark Final QA Sprint status
+mark_final_qa_status() {
+    local status="$1"  # "passed", "failed", "in_progress", "not_run"
+    local state_file="${SPRINTY_DIR:-${PWD}/.sprinty}/sprint_state.json"
+    
+    if [[ -f "$state_file" ]]; then
+        jq --arg status "$status" '.final_qa_status = $status | .final_qa_updated = (now | strftime("%Y-%m-%dT%H:%M:%S%z"))' \
+            "$state_file" > "${state_file}.tmp" && mv "${state_file}.tmp" "$state_file"
+    fi
+}
+
 # Check if project should be marked as done
 is_project_complete() {
     # Hard requirements for project completion:
     # 1. Backlog must exist and be complete
     # 2. No P1 bugs open
     # 3. (Optional) Fix plan complete if it exists
+    # 4. Final QA Sprint must have passed
     
     if ! is_backlog_initialized; then
         return 1
@@ -373,6 +455,12 @@ is_project_complete() {
         if has_remaining_fix_plan_work; then
             return 1
         fi
+    fi
+    
+    # Check Final QA Sprint passed
+    if ! has_final_qa_passed; then
+        log_debug "Final QA Sprint not yet passed"
+        return 1
     fi
     
     return 0
@@ -465,4 +553,12 @@ export -f check_fix_plan_completion
 export -f has_remaining_fix_plan_work
 export -f should_exit_gracefully
 export -f is_project_complete
+export -f has_final_qa_passed
+export -f needs_final_qa_sprint
+export -f mark_final_qa_status
+export -f get_final_qa_attempts
+export -f increment_final_qa_attempts
+export -f reset_final_qa_attempts
 export -f show_exit_status
+
+export MAX_FINAL_QA_ATTEMPTS=${MAX_FINAL_QA_ATTEMPTS:-3}

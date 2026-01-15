@@ -28,8 +28,8 @@
     "min_coverage_percent": 85
   },
   "agent": {
-    "cli_tool": "cursor-agent",
-    "model": "opus-4.5-thinking",
+    "cli_tool": "opencode",
+    "model": "opencode/minimax-m2.1-free",
     "timeout_minutes": 15,
     "output_format": "text"
   },

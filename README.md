@@ -143,9 +143,13 @@ sudo apt install jq
 </td>
 <td width="25%">
 
-**cursor-agent**
+**AI Agent CLI**
 ```bash
-npm install -g @anthropic/cursor-agent
+# Option 1: Cursor Agent (Recommended)
+curl https://cursor.com/install -fsS | bash
+
+# Option 2: OpenCode (Free Alternative)
+curl -fsSL https://opencode.ai/install | bash
 ```
 
 </td>
@@ -160,6 +164,8 @@ sudo apt install apptainer
 </td>
 </tr>
 </table>
+
+> 💡 **Note:** Sprinty supports multiple AI agent backends. By default, it uses **Cursor-Agent** with the `opus-4.5-thinking` model. You can switch to OpenCode or other backends by modifying the configuration.
 
 ### Installation
 
@@ -756,24 +762,122 @@ my-project/
   "project": {
     "name": "my-project"
   },
+  "agent": {
+    "cli_tool": "opencode",                // Agent backend: "opencode" or "cursor-agent"
+    "model": "opencode/minimax-m2.1-free",      // Model to use
+    "timeout_minutes": 15,                  // Timeout for agent execution
+    "output_format": "text"                 // Output format
+  },
   "sprint": {
-    "max_sprints": 10,               // Maximum number of sprints
-    "default_capacity": 20,           // Default story points per sprint
-    "planning_max_loops": 3,          // Max iterations in planning phase
-    "implementation_max_loops": 20,   // Max iterations in dev phase
-    "qa_max_loops": 5,                // Max iterations in QA phase
-    "review_max_loops": 2,            // Max iterations in review phase
-    "max_rework_cycles": 3            // Max QA failure rework cycles
+    "max_sprints": 10,                      // Maximum number of sprints
+    "default_capacity": 20,                 // Default story points per sprint
+    "planning_max_loops": 3,                // Max iterations in planning phase
+    "implementation_max_loops": 20,         // Max iterations in dev phase
+    "qa_max_loops": 5,                      // Max iterations in QA phase
+    "review_max_loops": 2,                  // Max iterations in review phase
+    "max_rework_cycles": 3                  // Max QA failure rework cycles
   },
   "rate_limiting": {
-    "max_calls_per_hour": 100,        // API rate limit
-    "min_wait_between_calls_sec": 5   // Minimum wait between calls
+    "max_calls_per_hour": 100,              // API rate limit
+    "min_wait_between_calls_sec": 5         // Minimum wait between calls
   },
   "circuit_breaker": {
-    "max_consecutive_failures": 3,         // Halt after N failures
-    "max_consecutive_no_progress": 5       // Halt if stuck for N loops
+    "max_consecutive_failures": 3,          // Halt after N failures
+    "max_consecutive_no_progress": 5        // Halt if stuck for N loops
   }
 }
+```
+
+### Choosing Your AI Agent Backend
+
+Sprinty supports multiple AI agent CLI tools. During initialization, Sprinty creates config templates for easy switching:
+
+```bash
+sprinty init my-project --prd requirements.txt
+```
+
+This creates:
+- `.sprinty/config.json` (active config, default: Cursor-Agent)
+- `.sprinty/config.cursor_agent.json` (Cursor-Agent template)
+- `.sprinty/config.opencode.json` (OpenCode template)
+
+#### Quick Switch Between Agents
+
+**Switch to Cursor-Agent (Recommended for Production):**
+```bash
+cp .sprinty/config.cursor_agent.json .sprinty/config.json
+```
+
+**Switch to OpenCode (Free tier):**
+```bash
+cp .sprinty/config.opencode.json .sprinty/config.json
+```
+
+**Temporary Override:**
+```bash
+export SPRINTY_AGENT_CLI=cursor-agent
+sprinty run
+```
+
+#### Option 2: OpenCode (Free Alternative)
+
+```json
+{
+  "agent": {
+    "cli_tool": "opencode",
+    "model": "opencode/minimax-m2.1-free"
+  }
+}
+```
+
+**Installation:**
+```bash
+curl -fsSL https://opencode.ai/install | bash
+source ~/.bashrc
+```
+
+**Available Models:**
+- `opencode/minimax-m2.1-free` - Free, no API key required
+- `opencode/glm-4.7-free` - Alternative free model
+- `opencode/gpt-4o-mini` - Paid, more reliable
+- See [OpenCode documentation](https://opencode.ai/docs) for more models
+
+**Note:** Free model may be less stable than paid options.
+
+#### Option 1: Cursor-Agent (Default)
+
+```json
+{
+  "agent": {
+    "cli_tool": "cursor-agent",
+    "model": "opus-4.5-thinking"
+  }
+}
+```
+
+**Installation:**
+```bash
+curl https://cursor.com/install -fsS | bash
+```
+
+**Available Models:**
+- `opus-4.5-thinking` - Default, most capable with extended thinking
+- `opus-4.5` - Claude Opus without thinking
+- `sonnet-4.5-thinking` - Claude Sonnet with thinking (faster)
+- `sonnet-4.5` - Claude Sonnet (fastest)
+
+#### Comparison
+
+| Feature | Cursor-Agent | OpenCode |
+|---------|--------------|----------|
+| **Cost** | 💰 Requires Cursor subscription | ✅ Free tier available |
+| **Setup** | Easy (curl install) | Easy (curl install) |
+| **Default Model** | `opus-4.5-thinking` | `opencode/minimax-m2.1-free` |
+| **Stability** | ✅ Very stable | ⚠️ May crash (Bun runtime) |
+| **Instruction Following** | ✅ Excellent | ⚠️ Variable (free model) |
+| **Best For** | Production, important projects | Testing, experimentation |
+
+**Recommendation:** Use Cursor-Agent for production workloads (default). The free OpenCode model is good for experimentation but may crash or not follow instructions consistently.
 ```
 
 ### Environment Variables
@@ -781,6 +885,12 @@ my-project/
 Customize Sprinty's behavior with these environment variables:
 
 ```bash
+# Set AI agent backend (default: cursor-agent)
+export AGENT_CLI_TOOL=cursor-agent  # or opencode
+
+# Set agent model (optional, overrides config)
+export AGENT_MODEL="opencode/minimax-m2.1-free"
+
 # Set rate limit (default: 100)
 export MAX_CALLS_PER_HOUR=200
 
@@ -796,9 +906,14 @@ sprinty --container --workspace . run
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `AGENT_CLI_TOOL` | `opencode` | Agent backend (`opencode` or `cursor-agent`) |
+| `AGENT_MODEL` | (from config) | AI model to use |
+| `AGENT_TIMEOUT_MINUTES` | `15` | Timeout for agent execution |
 | `MAX_CALLS_PER_HOUR` | `100` | API rate limit for agent calls |
 | `SPRINTY_DIR` | `.sprinty` | Directory for state files |
 | `BACKLOG_FILE` | `backlog.json` | Backlog file location |
+| `OPENCODE_API_KEY` | - | API key for opencode (if using paid models) |
+| `CURSOR_API_KEY` | - | API key for cursor-agent |
 
 ---
 

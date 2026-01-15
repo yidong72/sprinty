@@ -83,7 +83,27 @@ init_sprinty() {
             # Update project name in config
             jq --arg name "$project_name" '.project.name = $name' "$SPRINTY_DIR/config.json" > "$SPRINTY_DIR/config.json.tmp" \
                 && mv "$SPRINTY_DIR/config.json.tmp" "$SPRINTY_DIR/config.json"
-            log_status "SUCCESS" "Created config: $SPRINTY_DIR/config.json"
+            log_status "SUCCESS" "Created config: $SPRINTY_DIR/config.json (default: opencode)"
+            
+            # Copy cursor-agent template for easy switching
+            if [[ -f "$SCRIPT_DIR/templates/config.cursor_agent.json" ]]; then
+                cp "$SCRIPT_DIR/templates/config.cursor_agent.json" "$SPRINTY_DIR/config.cursor_agent.json"
+                jq --arg name "$project_name" '.project.name = $name' "$SPRINTY_DIR/config.cursor_agent.json" > "$SPRINTY_DIR/config.cursor_agent.json.tmp" \
+                    && mv "$SPRINTY_DIR/config.cursor_agent.json.tmp" "$SPRINTY_DIR/config.cursor_agent.json"
+                log_status "SUCCESS" "Created cursor-agent config: $SPRINTY_DIR/config.cursor_agent.json"
+            fi
+            
+            # Copy opencode template for easy switching back
+            if [[ -f "$SCRIPT_DIR/templates/config.opencode.json" ]]; then
+                cp "$SCRIPT_DIR/templates/config.opencode.json" "$SPRINTY_DIR/config.opencode.json"
+                jq --arg name "$project_name" '.project.name = $name' "$SPRINTY_DIR/config.opencode.json" > "$SPRINTY_DIR/config.opencode.json.tmp" \
+                    && mv "$SPRINTY_DIR/config.opencode.json.tmp" "$SPRINTY_DIR/config.opencode.json"
+                log_status "SUCCESS" "Created opencode config: $SPRINTY_DIR/config.opencode.json"
+            fi
+            
+            log_status "INFO" "💡 To switch agents:"
+            log_status "INFO" "   Cursor-Agent (recommended): cp .sprinty/config.cursor_agent.json .sprinty/config.json"
+            log_status "INFO" "   OpenCode: cp .sprinty/config.opencode.json .sprinty/config.json"
         else
             log_status "ERROR" "Config template not found: $SCRIPT_DIR/templates/config.json"
             return 1
@@ -105,8 +125,8 @@ init_sprinty() {
     # Initialize exit signals
     init_exit_signals
     
-    # Initialize cursor project config
-    init_cursor_project_config "."
+    # Initialize agent project config
+    init_agent_project_config "."
     
     # Copy PRD if provided
     if [[ -n "$prd_file" && -f "$prd_file" ]]; then
@@ -139,6 +159,34 @@ update_status() {
     
     local calls_made=$(get_call_count)
     
+    # Preserve existing agent_status if it exists
+    local existing_agent_status="{}"
+    if [[ -f "$STATUS_FILE" ]]; then
+        existing_agent_status=$(jq '.agent_status // {}' "$STATUS_FILE" 2>/dev/null || echo "{}")
+    fi
+    
+    # If agent_status is empty (not yet initialized), create default
+    if [[ "$existing_agent_status" == "{}" || "$existing_agent_status" == "null" ]]; then
+        existing_agent_status=$(cat << AGENTEOF
+{
+  "role": "",
+  "phase": "$phase",
+  "sprint": $sprint,
+  "tasks_completed": 0,
+  "tasks_remaining": 0,
+  "blockers": "none",
+  "story_points_done": 0,
+  "tests_status": "NOT_RUN",
+  "phase_complete": false,
+  "project_done": false,
+  "next_action": "",
+  "last_updated": "$(get_iso_timestamp)"
+}
+AGENTEOF
+)
+    fi
+    
+    # Create status.json preserving agent_status
     cat > "$STATUS_FILE" << STATUSEOF
 {
     "version": "$VERSION",
@@ -150,7 +198,8 @@ update_status() {
     "max_calls_per_hour": $MAX_CALLS_PER_HOUR,
     "status": "$status",
     "exit_reason": "$exit_reason",
-    "next_reset": "$(get_next_hour_time)"
+    "next_reset": "$(get_next_hour_time)",
+    "agent_status": $existing_agent_status
 }
 STATUSEOF
 }
@@ -238,21 +287,44 @@ execute_phase() {
                 if [[ -n "$output_file" && -f "$output_file" ]]; then
                     analyze_output_for_completion "$output_file" "$global_loop_count"
                     
-                    # Check for PROJECT_DONE signal
-                    if check_project_done_from_response "$output_file"; then
-                        log_status "SUCCESS" "Agent reported PROJECT_DONE"
+                    # Check for PROJECT_DONE signal from status.json
+                    if check_project_done_enhanced "$output_file"; then
+                        log_status "SUCCESS" "Agent reported PROJECT_DONE (from status.json)"
                         mark_project_done
                         return 0
                     fi
                     
-                    # Check for phase completion
-                    if check_phase_complete_from_response "$output_file"; then
-                        log_status "SUCCESS" "Phase complete (agent signal)"
+                    # Check for phase completion from status.json
+                    if check_phase_complete_enhanced "$output_file"; then
+                        log_status "SUCCESS" "Phase complete (from status.json)"
                         return 0
                     fi
                     
                     # Record circuit breaker data
-                    local files_changed=$(git diff --name-only 2>/dev/null | wc -l | tr -d ' ')
+                    # Count both tracked changes AND untracked files (for new projects)
+                    local tracked_changes=$(git diff --name-only 2>/dev/null | wc -l | tr -d ' ')
+                    local untracked_files=$(git ls-files --others --exclude-standard 2>/dev/null | wc -l | tr -d ' ')
+                    local git_changes=$((tracked_changes + untracked_files))
+                    
+                    # Also check status.json for task progress
+                    local task_progress=0
+                    if [[ -f "$STATUS_FILE" ]]; then
+                        # Use 'select(type=="number")' to ensure we get a number, not an array
+                        local current_tasks=$(jq -r '(.agent_status.tasks_completed // 0) | if type == "array" then .[0] else . end' "$STATUS_FILE" 2>/dev/null || echo 0)
+                        local current_points=$(jq -r '(.agent_status.story_points_done // 0) | if type == "array" then .[0] else . end' "$STATUS_FILE" 2>/dev/null || echo 0)
+                        
+                        # Ensure we have valid numbers
+                        [[ "$current_tasks" =~ ^[0-9]+$ ]] || current_tasks=0
+                        [[ "$current_points" =~ ^[0-9]+$ ]] || current_points=0
+                        
+                        if [[ $current_tasks -gt 0 ]] || [[ $current_points -gt 0 ]]; then
+                            task_progress=1
+                        fi
+                    fi
+                    
+                    # Progress detected if EITHER files changed OR tasks completed
+                    local files_changed=$((git_changes + task_progress))
+                    
                     local has_errors="false"
                     if grep -qE '(^Error:|^ERROR:|[Ee]xception|Fatal|FATAL)' "$output_file" 2>/dev/null; then
                         has_errors="true"
@@ -305,6 +377,176 @@ execute_phase() {
 }
 
 # ============================================================================
+# RESUME LOGIC
+# ============================================================================
+
+# Check if we're resuming an incomplete sprint
+is_resuming_sprint() {
+    local current_sprint=$(get_current_sprint)
+    local current_phase=$(get_current_phase)
+    
+    # Not resuming if Sprint 0 (initialization)
+    if [[ $current_sprint -eq 0 ]]; then
+        return 1
+    fi
+    
+    # Check if current sprint was already completed in history
+    # If completed, we're NOT resuming - we need to start a fresh sprint
+    local sprint_status=$(jq -r --argjson s "$current_sprint" \
+        '(.sprints_history[] | select(.sprint == $s)).status // "not_found"' \
+        "$SPRINT_STATE_FILE" 2>/dev/null || echo "not_found")
+    
+    if [[ "$sprint_status" == "completed" ]]; then
+        log_debug "Sprint $current_sprint already completed - not resuming"
+        return 1
+    fi
+    
+    # Resuming if we're in the middle of a phase (not planning)
+    if [[ "$current_phase" != "planning" ]]; then
+        log_debug "Resume detected: Sprint $current_sprint, Phase $current_phase"
+        return 0
+    fi
+    
+    # In planning phase - check if it already completed
+    # (tasks were assigned to this sprint AND sprint is still in_progress)
+    if is_backlog_initialized && [[ "$sprint_status" == "in_progress" ]]; then
+        local sprint_tasks=$(jq --argjson s "$current_sprint" \
+            '[.items[] | select(.sprint_id == $s)] | length' "$BACKLOG_FILE" 2>/dev/null || echo "0")
+        
+        if [[ $sprint_tasks -gt 0 ]]; then
+            log_debug "Resume detected: Sprint $current_sprint planning complete ($sprint_tasks tasks assigned)"
+            return 0
+        fi
+    fi
+    
+    # Not resuming - fresh sprint
+    return 1
+}
+
+# Resume execution of current sprint from current phase
+resume_sprint() {
+    local sprint_id=$(get_current_sprint)
+    local current_phase=$(get_current_phase)
+    local rework_count=$(get_rework_count)
+    
+    log_status "INFO" "📍 Resuming Sprint $sprint_id from phase: $current_phase"
+    log_status "SPRINT" "=== Sprint $sprint_id (resumed) ==="
+    
+    local max_rework=$(get_sprint_state "max_rework_cycles" 2>/dev/null || echo "$DEFAULT_MAX_REWORK_CYCLES")
+    [[ "$max_rework" == "null" || -z "$max_rework" ]] && max_rework="$DEFAULT_MAX_REWORK_CYCLES"
+    max_rework=${max_rework:-3}
+    
+    # Execute from current phase onwards
+    case "$current_phase" in
+        "planning")
+            # Check if planning is actually complete
+            if is_phase_complete "planning"; then
+                log_status "INFO" "Planning phase already complete, skipping to implementation"
+            else
+                execute_phase "planning" "product_owner"
+                if [[ $? -eq 3 ]]; then
+                    return 10  # Circuit breaker
+                fi
+            fi
+            
+            # Fall through to implementation
+            ;&  # Bash fall-through syntax
+        
+        "implementation")
+            # Implementation + QA rework loop
+            while [[ $rework_count -lt $max_rework ]]; do
+                log_status "INFO" "Implementation/QA cycle $((rework_count + 1))/$max_rework"
+                
+                # Only run implementation if not already complete
+                if [[ "$current_phase" == "implementation" ]] || ! is_phase_complete "implementation"; then
+                    execute_phase "implementation" "developer"
+                    if [[ $? -eq 3 ]]; then
+                        return 10  # Circuit breaker
+                    fi
+                fi
+                
+                # Check if project is done
+                if is_project_complete; then
+                    log_status "SUCCESS" "Project complete after implementation"
+                    mark_project_done
+                    return 20
+                fi
+                
+                # QA phase
+                execute_phase "qa" "qa"
+                if [[ $? -eq 3 ]]; then
+                    return 10  # Circuit breaker
+                fi
+                
+                # Check if QA failed tasks exist
+                if ! has_tasks_to_rework; then
+                    log_status "SUCCESS" "No QA failures, proceeding to review"
+                    break
+                fi
+                
+                # Handle rework
+                rework_count=$((rework_count + 1))
+                increment_rework
+                
+                if is_rework_limit_exceeded; then
+                    log_status "WARN" "Rework limit exceeded for sprint $sprint_id"
+                    break
+                fi
+                
+                log_status "WARN" "QA failures detected, starting rework cycle $rework_count"
+                
+                # Set phase back to implementation for rework
+                set_current_phase "implementation"
+            done
+            
+            # Fall through to review
+            ;&
+        
+        "qa")
+            # If we're resuming at QA, we already handled it above
+            # Just need to check for rework
+            if [[ "$current_phase" == "qa" ]]; then
+                # QA might not have completed yet
+                if ! is_phase_complete "qa"; then
+                    execute_phase "qa" "qa"
+                    if [[ $? -eq 3 ]]; then
+                        return 10
+                    fi
+                fi
+            fi
+            
+            # Fall through to review
+            ;&
+        
+        "review")
+            # Review phase
+            execute_phase "review" "product_owner"
+            if [[ $? -eq 3 ]]; then
+                return 10  # Circuit breaker
+            fi
+            ;;
+    esac
+    
+    # Record sprint velocity before ending
+    local sprint_done_points=$(get_sprint_completed_points "$sprint_id")
+    local sprint_total_points=$(get_sprint_points "$sprint_id")
+    record_sprint_velocity "$sprint_id" "$sprint_done_points" "$sprint_total_points"
+    
+    # End sprint - marks sprint as "completed" in history and resets phase
+    # The next execute_sprint() will detect completed status and start fresh
+    end_sprint "completed"
+    
+    # Check if project is done
+    if is_project_complete; then
+        log_status "SUCCESS" "🎉 Project complete after sprint $sprint_id"
+        mark_project_done
+        return 20
+    fi
+    
+    return 0
+}
+
+# ============================================================================
 # SPRINT EXECUTION
 # ============================================================================
 
@@ -342,8 +584,141 @@ execute_sprint_zero() {
     return 0
 }
 
+# Execute the Final QA Sprint (comprehensive system testing)
+execute_final_qa_sprint() {
+    local attempt=$(get_final_qa_attempts)
+    local max_attempts=${MAX_FINAL_QA_ATTEMPTS:-3}
+    
+    log_status "SPRINT" "╔══════════════════════════════════════════════════════════════╗"
+    log_status "SPRINT" "║       FINAL QA SPRINT - Comprehensive Testing (Attempt $((attempt + 1))/$max_attempts)    ║"
+    log_status "SPRINT" "╚══════════════════════════════════════════════════════════════╝"
+    
+    # Increment attempt counter
+    increment_final_qa_attempts
+    
+    # Mark Final QA as in progress
+    mark_final_qa_status "in_progress"
+    
+    # Count bugs before Final QA
+    local bugs_before=$(jq '[.items[] | select(.type == "bug" and .status == "backlog")] | length' "$BACKLOG_FILE" 2>/dev/null || echo "0")
+    
+    # Run Final QA with qa role using the final_qa prompt
+    log_status "PHASE" "Running Final QA Sprint (comprehensive system testing)"
+    
+    # Execute Final QA phase
+    execute_phase "final_qa" "qa"
+    local result=$?
+    
+    if [[ $result -eq 3 ]]; then
+        log_status "ERROR" "Final QA Sprint: Circuit breaker triggered"
+        mark_final_qa_status "failed"
+        return 10
+    fi
+    
+    # Count bugs after Final QA
+    local bugs_after=$(jq '[.items[] | select(.type == "bug" and .status == "backlog")] | length' "$BACKLOG_FILE" 2>/dev/null || echo "0")
+    local new_bugs=$((bugs_after - bugs_before))
+    
+    # Check Final QA status from status.json
+    local status_file="${SPRINTY_DIR}/status.json"
+    local qa_result="unknown"
+    if [[ -f "$status_file" ]]; then
+        qa_result=$(jq -r '.agent_status.project_done // false' "$status_file" 2>/dev/null)
+        local bugs_found=$(jq -r '.agent_status.bugs_found // 0' "$status_file" 2>/dev/null)
+        [[ "$bugs_found" != "null" && "$bugs_found" != "0" ]] && new_bugs=$bugs_found
+    fi
+    
+    # Determine Final QA Sprint outcome
+    if [[ "$qa_result" == "true" && $new_bugs -eq 0 ]]; then
+        log_status "SUCCESS" "✅ Final QA Sprint PASSED - No issues found"
+        mark_final_qa_status "passed"
+        reset_final_qa_attempts  # Reset counter on success
+        
+        # Create Final QA report
+        mkdir -p reviews
+        cat > "reviews/final_qa_report.md" << EOF
+# Final QA Sprint Report
+
+**Date:** $(date -Iseconds)
+**Status:** ✅ PASSED
+**Attempt:** $((attempt + 1))/$max_attempts
+
+## Summary
+- All installation tests passed
+- All VERIFY criteria passed
+- All end-to-end workflows passed
+- All automated tests passed
+- No bugs found
+
+## Recommendation
+Project is ready for release.
+EOF
+        return 0
+    else
+        log_status "WARN" "⚠️ Final QA Sprint FAILED - $new_bugs issue(s) found"
+        mark_final_qa_status "failed"
+        
+        # Check if bugs were created - if not, this is a problem
+        if [[ $new_bugs -eq 0 ]]; then
+            log_status "WARN" "Final QA failed but no bugs were created. Agent should create bug tickets for issues found."
+            log_status "INFO" "Creating placeholder bug for investigation..."
+            
+            # Create a placeholder bug so the loop doesn't get stuck
+            local next_bug_id=$(jq -r '[.items[].id | select(startswith("BUG-")) | capture("BUG-(?<n>[0-9]+)").n | tonumber] | max // 0 + 1' "$BACKLOG_FILE" 2>/dev/null || echo "1")
+            local bug_id="BUG-$(printf '%03d' $next_bug_id)"
+            
+            jq --arg id "$bug_id" \
+               --arg title "Final QA failed - investigation needed" \
+               --arg desc "Final QA Sprint failed but did not specify issues. Manual investigation required." \
+            '.items += [{
+              "id": $id,
+              "title": $title,
+              "description": $desc,
+              "type": "bug",
+              "priority": 1,
+              "story_points": 3,
+              "status": "backlog",
+              "sprint_id": null,
+              "acceptance_criteria": ["Investigate Final QA failure", "Fix identified issues", "VERIFY: Final QA Sprint passes"],
+              "dependencies": []
+            }]' "$BACKLOG_FILE" > "${BACKLOG_FILE}.tmp" && mv "${BACKLOG_FILE}.tmp" "$BACKLOG_FILE"
+            
+            new_bugs=1
+        fi
+        
+        log_status "INFO" "Bug tickets created in backlog. Returning to development sprints."
+        
+        # Create Final QA failure report
+        mkdir -p reviews
+        cat > "reviews/final_qa_report.md" << EOF
+# Final QA Sprint Report
+
+**Date:** $(date -Iseconds)
+**Status:** ❌ FAILED
+**Attempt:** $((attempt + 1))/$max_attempts
+
+## Summary
+- Issues found: $new_bugs
+- Action: Bug tickets created in backlog
+
+## Next Steps
+1. Fix bugs in next development sprint
+2. Run Final QA Sprint again ($(($max_attempts - attempt - 1)) attempts remaining)
+3. Repeat until all issues resolved
+EOF
+        return 1
+    fi
+}
+
 # Execute a regular sprint (1-N)
 execute_sprint() {
+    # Check if we should resume instead of starting fresh
+    if is_resuming_sprint; then
+        resume_sprint
+        return $?
+    fi
+    
+    # Fresh sprint - start normally
     local sprint_id=$(start_sprint)
     local start_result=$?
     
@@ -418,7 +793,7 @@ execute_sprint() {
     local sprint_total_points=$(get_sprint_points "$sprint_id")
     record_sprint_velocity "$sprint_id" "$sprint_done_points" "$sprint_total_points"
     
-    # End sprint
+    # End sprint - this also resets phase to "planning" to prevent false resume detection
     end_sprint "completed"
     
     # Check if project is done
@@ -475,18 +850,65 @@ run_sprinty() {
     
     # Get config values
     local max_sprints=$(jq -r '.sprint.max_sprints // 10' "$SPRINTY_DIR/config.json" 2>/dev/null || echo "10")
-    local sprint_count=0
     
-    # Main sprint loop
-    while ! is_project_marked_done && [[ $sprint_count -lt $max_sprints ]]; do
-        sprint_count=$((sprint_count + 1))
+    # Main sprint loop - use state file sprint number, not local counter
+    while ! is_project_marked_done; do
+        local current_sprint=$(get_current_sprint)
+        
+        # Check max sprints
+        if [[ $current_sprint -ge $max_sprints ]]; then
+            log_status "WARN" "Max sprints reached ($current_sprint >= $max_sprints)"
+            update_status "$global_loop_count" "$(get_current_phase)" "$current_sprint" "stopped" "max_sprints"
+            break
+        fi
         
         # Check for graceful exit before starting new sprint
         local exit_reason=$(should_exit_gracefully)
         if [[ -n "$exit_reason" ]]; then
             log_status "SUCCESS" "🏁 Graceful exit triggered: $exit_reason"
-            update_status "$global_loop_count" "$(get_current_phase)" "$sprint_count" "completed" "$exit_reason"
+            update_status "$global_loop_count" "$(get_current_phase)" "$current_sprint" "completed" "$exit_reason"
             break
+        fi
+        
+        # Check if Final QA Sprint is needed (all tasks done, Final QA not passed)
+        if needs_final_qa_sprint; then
+            log_status "INFO" "All development tasks complete - starting Final QA Sprint"
+            execute_final_qa_sprint
+            result=$?
+            
+            case $result in
+                0)
+                    # Final QA passed - project is truly done
+                    log_status "SUCCESS" "🎉 Final QA Sprint PASSED - Project complete!"
+                    mark_project_done
+                    update_status "$global_loop_count" "final_qa" "$current_sprint" "completed" "final_qa_passed"
+                    exit 20
+                    ;;
+                1)
+                    # Final QA failed - bugs created, continue sprinting
+                    log_status "INFO" "Final QA Sprint found issues - continuing development sprints"
+                    # Loop will continue with new bugs in backlog
+                    ;;
+                10)
+                    log_status "ERROR" "Final QA Sprint: Circuit breaker opened"
+                    update_status "$global_loop_count" "final_qa" "$current_sprint" "halted" "circuit_breaker"
+                    exit 10
+                    ;;
+            esac
+            continue  # Re-evaluate the loop condition
+        fi
+        
+        # Check if Final QA max attempts reached but still not passing
+        # This happens when backlog is complete but needs_final_qa_sprint returns false due to max attempts
+        if check_backlog_completion && ! has_final_qa_passed; then
+            local attempts=$(get_final_qa_attempts)
+            local max_attempts=${MAX_FINAL_QA_ATTEMPTS:-3}
+            if [[ $attempts -ge $max_attempts ]]; then
+                log_status "ERROR" "Final QA Sprint failed $attempts times. Project cannot be completed."
+                log_status "INFO" "Manual intervention required. Check reviews/final_qa_report.md for details."
+                update_status "$global_loop_count" "final_qa" "$current_sprint" "failed" "final_qa_max_attempts"
+                exit 1
+            fi
         fi
         
         execute_sprint
@@ -494,21 +916,21 @@ run_sprinty() {
         
         case $result in
             0)
-                log_status "SUCCESS" "Sprint $sprint_count completed"
+                # Sprint completion already logged by end_sprint()
                 ;;
             10)
                 log_status "ERROR" "Circuit breaker opened"
-                update_status "$global_loop_count" "$(get_current_phase)" "$sprint_count" "halted" "circuit_breaker"
+                update_status "$global_loop_count" "$(get_current_phase)" "$current_sprint" "halted" "circuit_breaker"
                 exit 10
                 ;;
             20)
-                log_status "SUCCESS" "🎉 Project complete!"
-                update_status "$global_loop_count" "$(get_current_phase)" "$sprint_count" "completed" "project_done"
-                exit 20
+                # Don't mark project done yet - need to run Final QA Sprint
+                log_status "INFO" "Sprint complete - checking if Final QA Sprint needed"
+                # Loop will continue and trigger Final QA Sprint if needed
                 ;;
             21)
                 log_status "WARN" "Max sprints reached"
-                update_status "$global_loop_count" "$(get_current_phase)" "$sprint_count" "stopped" "max_sprints"
+                update_status "$global_loop_count" "$(get_current_phase)" "$current_sprint" "stopped" "max_sprints"
                 exit 21
                 ;;
         esac
@@ -547,7 +969,11 @@ show_status() {
         return 1
     fi
     
+    # Agent configuration status
+    show_agent_config_status
+    
     # Sprint status
+    echo ""
     show_sprint_status
     
     # Backlog summary
@@ -647,6 +1073,7 @@ Global Options:
     --monitor, -m           Launch in tmux dashboard (use with 'run')
     --reset-circuit         Reset circuit breaker
     --reset-rate-limit      Reset rate limiter
+    --reset-final-qa        Reset Final QA Sprint attempts (use if stuck)
     --calls <num>           Set max calls per hour
 
 Container Options (Recommended for Safety):
@@ -998,6 +1425,19 @@ main() {
             ;;
         --reset-rate-limit)
             reset_rate_limiter
+            ;;
+        --reset-final-qa)
+            if [[ ! -f "$SPRINTY_DIR/sprint_state.json" ]]; then
+                echo "Error: No sprint state found. Run 'sprinty init' first."
+                exit 1
+            fi
+            reset_final_qa_attempts
+            mark_final_qa_status "not_run"
+            echo "✅ Final QA Sprint reset complete:"
+            echo "   - Attempt counter: reset to 0"
+            echo "   - Status: reset to 'not_run'"
+            echo ""
+            echo "You can now run 'sprinty run' to retry Final QA Sprint."
             ;;
         --version|-v)
             echo "Sprinty version $VERSION"
