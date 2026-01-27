@@ -14,13 +14,13 @@ source "$_LIB_DIR/utils.sh"
 # CONFIGURATION
 # ============================================================================
 
-# Detect agent CLI tool from config, fallback to cursor-agent for backward compatibility
+# Detect agent CLI tool from config, fallback to claude as default
 detect_agent_cli_tool() {
     local config_file="${SPRINTY_DIR:-.sprinty}/config.json"
     if [[ -f "$config_file" ]]; then
-        jq -r '.agent.cli_tool // "cursor-agent"' "$config_file" 2>/dev/null || echo "cursor-agent"
+        jq -r '.agent.cli_tool // "claude"' "$config_file" 2>/dev/null || echo "claude"
     else
-        echo "cursor-agent"
+        echo "claude"
     fi
 }
 
@@ -44,6 +44,12 @@ get_agent_model() {
             ;;
         cursor-agent)
             echo "opus-4.5-thinking"
+            ;;
+        claude)
+            echo "opus"
+            ;;
+        nvidia-code)
+            echo "gpt-4"
             ;;
         *)
             echo ""
@@ -94,6 +100,12 @@ check_agent_installed() {
         opencode)
             check_opencode_installed
             ;;
+        claude)
+            check_claude_installed
+            ;;
+        nvidia-code)
+            check_nvidia_code_installed
+            ;;
         *)
             log_status "ERROR" "Unknown agent CLI tool: $AGENT_CLI_TOOL"
             return 1
@@ -110,6 +122,12 @@ get_agent_version() {
         opencode)
             get_opencode_version
             ;;
+        claude)
+            get_claude_version
+            ;;
+        nvidia-code)
+            get_nvidia_code_version
+            ;;
         *)
             echo "unknown"
             ;;
@@ -125,6 +143,12 @@ check_agent_auth() {
         opencode)
             check_opencode_auth
             ;;
+        claude)
+            check_claude_auth
+            ;;
+        nvidia-code)
+            check_nvidia_code_auth
+            ;;
         *)
             return 1
             ;;
@@ -134,13 +158,19 @@ check_agent_auth() {
 # Initialize project configuration
 init_agent_project_config() {
     local project_dir=${1:-.}
-    
+
     case "$AGENT_CLI_TOOL" in
         cursor-agent)
             init_cursor_project_config "$project_dir"
             ;;
         opencode)
             init_opencode_project_config "$project_dir"
+            ;;
+        claude)
+            init_claude_project_config "$project_dir"
+            ;;
+        nvidia-code)
+            init_nvidia_code_project_config "$project_dir"
             ;;
         *)
             log_status "WARN" "No project config initialization for: $AGENT_CLI_TOOL"
@@ -154,13 +184,19 @@ execute_agent() {
     local prompt_file=$1
     local output_file=$2
     local timeout_seconds=${3:-$((AGENT_TIMEOUT_MINUTES * 60))}
-    
+
     case "$AGENT_CLI_TOOL" in
         cursor-agent)
             execute_cursor_agent "$prompt_file" "$output_file" "$timeout_seconds"
             ;;
         opencode)
             execute_opencode "$prompt_file" "$output_file" "$timeout_seconds"
+            ;;
+        claude)
+            execute_claude "$prompt_file" "$output_file" "$timeout_seconds"
+            ;;
+        nvidia-code)
+            execute_nvidia_code "$prompt_file" "$output_file" "$timeout_seconds"
             ;;
         *)
             log_status "ERROR" "Unknown agent CLI tool: $AGENT_CLI_TOOL"
@@ -174,13 +210,19 @@ execute_agent_raw() {
     local prompt_string=$1
     local output_file=$2
     local timeout_seconds=${3:-$((AGENT_TIMEOUT_MINUTES * 60))}
-    
+
     case "$AGENT_CLI_TOOL" in
         cursor-agent)
             execute_cursor_agent_raw "$prompt_string" "$output_file" "$timeout_seconds"
             ;;
         opencode)
             execute_opencode_raw "$prompt_string" "$output_file" "$timeout_seconds"
+            ;;
+        claude)
+            execute_claude_raw "$prompt_string" "$output_file" "$timeout_seconds"
+            ;;
+        nvidia-code)
+            execute_nvidia_code_raw "$prompt_string" "$output_file" "$timeout_seconds"
             ;;
         *)
             log_status "ERROR" "Unknown agent CLI tool: $AGENT_CLI_TOOL"
@@ -760,17 +802,296 @@ execute_opencode_raw() {
     local prompt_string=$1
     local output_file=$2
     local timeout_seconds=${3:-$((AGENT_TIMEOUT_MINUTES * 60))}
-    
+
     local cmd_args=("run")
-    
+
     if [[ -n "$AGENT_MODEL" ]]; then
         cmd_args+=("--model" "$AGENT_MODEL")
     fi
-    
+
     cmd_args+=("$prompt_string")
-    
+
     # Redirect stderr to /dev/null to avoid noise/progress indicators
     timeout --kill-after=30s ${timeout_seconds}s opencode "${cmd_args[@]}" 2>/dev/null > "$output_file"
+    return $?
+}
+
+# ============================================================================
+# CLAUDE IMPLEMENTATION
+# ============================================================================
+
+# Check if claude CLI is installed
+check_claude_installed() {
+    if ! command -v claude &> /dev/null; then
+        log_status "ERROR" "claude CLI not found"
+        echo "" >&2
+        echo "Install claude with:" >&2
+        echo "  curl -fsSL https://claude.com/install | bash" >&2
+        echo "" >&2
+        echo "After installation, restart your terminal or run:" >&2
+        echo "  source ~/.bashrc  # or ~/.zshrc" >&2
+        return 1
+    fi
+    return 0
+}
+
+# Get claude version
+get_claude_version() {
+    if check_claude_installed 2>/dev/null; then
+        claude --version 2>/dev/null || echo "unknown"
+    else
+        echo "not installed"
+    fi
+}
+
+# Check if claude authentication is configured
+check_claude_auth() {
+    # claude typically requires authentication
+    if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+        return 0
+    fi
+
+    # Check if claude is installed and can run
+    if check_claude_installed 2>/dev/null; then
+        # claude CLI will handle auth checks internally
+        return 0
+    fi
+
+    return 1
+}
+
+# Initialize project claude configuration
+init_claude_project_config() {
+    local project_dir=${1:-.}
+
+    # claude uses a settings.json file for project-specific configuration
+    mkdir -p "$project_dir/.claude"
+
+    log_status "SUCCESS" "claude project directory initialized"
+    return 0
+}
+
+# Execute claude with prompt file
+# Usage: execute_claude <prompt_file> <output_file> [timeout_seconds]
+execute_claude() {
+    local prompt_file=$1
+    local output_file=$2
+    local timeout_seconds=${3:-$((AGENT_TIMEOUT_MINUTES * 60))}
+
+    # Validate prompt file exists
+    if [[ ! -f "$prompt_file" ]]; then
+        log_status "ERROR" "Prompt file not found: $prompt_file"
+        return 1
+    fi
+
+    # Read prompt content
+    local prompt_content
+    prompt_content=$(cat "$prompt_file") || {
+        log_status "ERROR" "Failed to read prompt file: $prompt_file"
+        return 1
+    }
+
+    # Build claude command arguments
+    local cmd_args=(
+        "-p"  # Print mode - non-interactive
+        "--dangerously-skip-permissions"  # Bypass all permission checks
+        "--no-session-persistence"  # Don't save sessions
+    )
+
+    # Add model if specified
+    if [[ -n "$AGENT_MODEL" ]]; then
+        cmd_args+=("--model" "$AGENT_MODEL")
+    fi
+
+    # Add the prompt as the final argument
+    cmd_args+=("$prompt_content")
+
+    log_status "INFO" "Executing claude (timeout: ${timeout_seconds}s)..."
+    log_debug "Using model: ${AGENT_MODEL}"
+    log_debug "Command: claude -p --dangerously-skip-permissions --no-session-persistence --model $AGENT_MODEL <prompt-content>"
+
+    # Execute with timeout (--kill-after ensures SIGKILL if SIGTERM fails)
+    # Capture both stdout and stderr
+    timeout --kill-after=30s ${timeout_seconds}s claude "${cmd_args[@]}" > "$output_file" 2>&1
+    local exit_code=$?
+
+    # Handle timeout
+    if [[ $exit_code -eq 124 ]]; then
+        echo "TIMEOUT: claude execution timed out after ${timeout_seconds}s" >> "$output_file"
+        log_status "WARN" "claude execution timed out"
+    fi
+
+    return $exit_code
+}
+
+# Execute claude with raw prompt string (not from file)
+execute_claude_raw() {
+    local prompt_string=$1
+    local output_file=$2
+    local timeout_seconds=${3:-$((AGENT_TIMEOUT_MINUTES * 60))}
+
+    local cmd_args=(
+        "-p"
+        "--dangerously-skip-permissions"
+        "--no-session-persistence"
+    )
+
+    if [[ -n "$AGENT_MODEL" ]]; then
+        cmd_args+=("--model" "$AGENT_MODEL")
+    fi
+
+    cmd_args+=("$prompt_string")
+
+    # Capture both stdout and stderr
+    timeout --kill-after=30s ${timeout_seconds}s claude "${cmd_args[@]}" > "$output_file" 2>&1
+    return $?
+}
+
+# ============================================================================
+# NVIDIA-CODE IMPLEMENTATION
+# ============================================================================
+
+# Check if nvidia-code CLI is installed
+check_nvidia_code_installed() {
+    if ! command -v nvidia-code &> /dev/null; then
+        log_status "ERROR" "nvidia-code CLI not found"
+        echo "" >&2
+        echo "Install nvidia-code with:" >&2
+        echo "  npm install -g @nvidia/nvidia-code" >&2
+        echo "" >&2
+        echo "Or from source:" >&2
+        echo "  git clone https://github.com/nvidia/nvidia-code" >&2
+        echo "  cd nvidia-code && npm install && npm run build && npm link" >&2
+        return 1
+    fi
+    return 0
+}
+
+# Get nvidia-code version
+get_nvidia_code_version() {
+    if check_nvidia_code_installed 2>/dev/null; then
+        nvidia-code -v 2>/dev/null || echo "unknown"
+    else
+        echo "not installed"
+    fi
+}
+
+# Check if nvidia-code authentication is configured
+check_nvidia_code_auth() {
+    # nvidia-code uses OpenAI-compatible configuration
+    if [[ -n "${OPENAI_API_KEY:-}" ]]; then
+        return 0
+    fi
+
+    # Check if nvidia-code is installed and can run
+    if check_nvidia_code_installed 2>/dev/null; then
+        # May work with local servers without API key
+        return 0
+    fi
+
+    return 1
+}
+
+# Initialize project nvidia-code configuration
+init_nvidia_code_project_config() {
+    local project_dir=${1:-.}
+
+    # nvidia-code uses .nvidia-code directory for project-specific config
+    mkdir -p "$project_dir/.nvidia-code"
+
+    log_status "SUCCESS" "nvidia-code project directory initialized"
+    return 0
+}
+
+# Execute nvidia-code with prompt file
+# Usage: execute_nvidia_code <prompt_file> <output_file> [timeout_seconds]
+execute_nvidia_code() {
+    local prompt_file=$1
+    local output_file=$2
+    local timeout_seconds=${3:-$((AGENT_TIMEOUT_MINUTES * 60))}
+
+    # Validate prompt file exists
+    if [[ ! -f "$prompt_file" ]]; then
+        log_status "ERROR" "Prompt file not found: $prompt_file"
+        return 1
+    fi
+
+    # Read prompt content
+    local prompt_content
+    prompt_content=$(cat "$prompt_file") || {
+        log_status "ERROR" "Failed to read prompt file: $prompt_file"
+        return 1
+    }
+
+    # Build nvidia-code command arguments
+    local cmd_args=(
+        "-p"  # Print mode - non-interactive with full permissions (yolo mode)
+    )
+
+    # Add the prompt as the final argument
+    cmd_args+=("$prompt_content")
+
+    # Set up environment variables for model configuration
+    local env_vars=()
+    if [[ -n "$AGENT_MODEL" ]]; then
+        env_vars+=("OPENAI_MODEL=$AGENT_MODEL")
+    fi
+
+    # Preserve existing OPENAI_* environment variables
+    if [[ -n "${OPENAI_API_KEY:-}" ]]; then
+        env_vars+=("OPENAI_API_KEY=$OPENAI_API_KEY")
+    fi
+    if [[ -n "${OPENAI_BASE_URL:-}" ]]; then
+        env_vars+=("OPENAI_BASE_URL=$OPENAI_BASE_URL")
+    fi
+
+    log_status "INFO" "Executing nvidia-code (timeout: ${timeout_seconds}s)..."
+    log_debug "Using model: ${AGENT_MODEL}"
+    log_debug "Command: nvidia-code -p <prompt-content>"
+
+    # Execute with timeout and environment variables
+    if [[ ${#env_vars[@]} -gt 0 ]]; then
+        timeout --kill-after=30s ${timeout_seconds}s env "${env_vars[@]}" nvidia-code "${cmd_args[@]}" > "$output_file" 2>&1
+    else
+        timeout --kill-after=30s ${timeout_seconds}s nvidia-code "${cmd_args[@]}" > "$output_file" 2>&1
+    fi
+    local exit_code=$?
+
+    # Handle timeout
+    if [[ $exit_code -eq 124 ]]; then
+        echo "TIMEOUT: nvidia-code execution timed out after ${timeout_seconds}s" >> "$output_file"
+        log_status "WARN" "nvidia-code execution timed out"
+    fi
+
+    return $exit_code
+}
+
+# Execute nvidia-code with raw prompt string (not from file)
+execute_nvidia_code_raw() {
+    local prompt_string=$1
+    local output_file=$2
+    local timeout_seconds=${3:-$((AGENT_TIMEOUT_MINUTES * 60))}
+
+    local cmd_args=("-p" "$prompt_string")
+
+    # Set up environment variables
+    local env_vars=()
+    if [[ -n "$AGENT_MODEL" ]]; then
+        env_vars+=("OPENAI_MODEL=$AGENT_MODEL")
+    fi
+    if [[ -n "${OPENAI_API_KEY:-}" ]]; then
+        env_vars+=("OPENAI_API_KEY=$OPENAI_API_KEY")
+    fi
+    if [[ -n "${OPENAI_BASE_URL:-}" ]]; then
+        env_vars+=("OPENAI_BASE_URL=$OPENAI_BASE_URL")
+    fi
+
+    # Execute with environment variables
+    if [[ ${#env_vars[@]} -gt 0 ]]; then
+        timeout --kill-after=30s ${timeout_seconds}s env "${env_vars[@]}" nvidia-code "${cmd_args[@]}" > "$output_file" 2>&1
+    else
+        timeout --kill-after=30s ${timeout_seconds}s nvidia-code "${cmd_args[@]}" > "$output_file" 2>&1
+    fi
     return $?
 }
 
@@ -1162,6 +1483,12 @@ print_agent_status() {
         opencode)
             agent_name="OpenCode"
             ;;
+        claude)
+            agent_name="Claude CLI"
+            ;;
+        nvidia-code)
+            agent_name="Nvidia Code"
+            ;;
         *)
             agent_name="Unknown Agent"
             ;;
@@ -1193,6 +1520,10 @@ print_agent_status() {
     if [[ "$AGENT_CLI_TOOL" == "cursor-agent" && -f "$CURSOR_CONFIG_DIR/cli.json" ]]; then
         echo -e "Project Config:   ${GREEN}✓ Present${NC}"
     elif [[ "$AGENT_CLI_TOOL" == "opencode" && -d ".opencode" ]]; then
+        echo -e "Project Config:   ${GREEN}✓ Present${NC}"
+    elif [[ "$AGENT_CLI_TOOL" == "claude" && -d ".claude" ]]; then
+        echo -e "Project Config:   ${GREEN}✓ Present${NC}"
+    elif [[ "$AGENT_CLI_TOOL" == "nvidia-code" && -d ".nvidia-code" ]]; then
         echo -e "Project Config:   ${GREEN}✓ Present${NC}"
     else
         echo -e "Project Config:   ${YELLOW}⚠ Not configured${NC}"
@@ -1239,6 +1570,22 @@ export -f check_opencode_auth
 export -f init_opencode_project_config
 export -f execute_opencode
 export -f execute_opencode_raw
+
+# Export claude specific functions
+export -f check_claude_installed
+export -f get_claude_version
+export -f check_claude_auth
+export -f init_claude_project_config
+export -f execute_claude
+export -f execute_claude_raw
+
+# Export nvidia-code specific functions
+export -f check_nvidia_code_installed
+export -f get_nvidia_code_version
+export -f check_nvidia_code_auth
+export -f init_nvidia_code_project_config
+export -f execute_nvidia_code
+export -f execute_nvidia_code_raw
 
 # Export common functions
 export -f detect_agent_cli_tool

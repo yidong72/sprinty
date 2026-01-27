@@ -28,8 +28,8 @@
     "min_coverage_percent": 85
   },
   "agent": {
-    "cli_tool": "claude",
-    "model": "opus",
+    "cli_tool": "nvidia-code",
+    "model": "gpt-4",
     "timeout_minutes": 240,
     "output_format": "text"
   },
