@@ -51,6 +51,26 @@ get_agent_model() {
     esac
 }
 
+# Get model for a specific agent role
+# Usage: get_model_for_role <role>
+# Returns: model name for the role, or default model if not configured
+get_model_for_role() {
+    local role=$1
+    local config_file="${SPRINTY_DIR:-.sprinty}/config.json"
+    
+    if [[ -f "$config_file" ]]; then
+        # Try to get role-specific model from models_by_role
+        local role_model=$(jq -r ".agent.models_by_role.${role} // \"\"" "$config_file" 2>/dev/null || echo "")
+        if [[ -n "$role_model" ]]; then
+            echo "$role_model"
+            return
+        fi
+    fi
+    
+    # Fall back to default model
+    echo "${AGENT_MODEL:-$(get_agent_model)}"
+}
+
 # Get agent timeout from config
 get_agent_timeout() {
     local config_file="${SPRINTY_DIR:-.sprinty}/config.json"
@@ -149,17 +169,25 @@ init_agent_project_config() {
 }
 
 # Execute agent with prompt
+# Usage: execute_agent <prompt_file> <output_file> [timeout_seconds] [role]
 execute_agent() {
     local prompt_file=$1
     local output_file=$2
     local timeout_seconds=${3:-$((AGENT_TIMEOUT_MINUTES * 60))}
+    local role=${4:-}
+    
+    # Get role-specific model if role is provided
+    local model_override=""
+    if [[ -n "$role" ]]; then
+        model_override=$(get_model_for_role "$role")
+    fi
     
     case "$AGENT_CLI_TOOL" in
         cursor-agent)
-            execute_cursor_agent "$prompt_file" "$output_file" "$timeout_seconds"
+            execute_cursor_agent "$prompt_file" "$output_file" "$timeout_seconds" "$model_override"
             ;;
         opencode)
-            execute_opencode "$prompt_file" "$output_file" "$timeout_seconds"
+            execute_opencode "$prompt_file" "$output_file" "$timeout_seconds" "$model_override"
             ;;
         *)
             log_status "ERROR" "Unknown agent CLI tool: $AGENT_CLI_TOOL"
@@ -169,17 +197,25 @@ execute_agent() {
 }
 
 # Execute agent with raw prompt string
+# Usage: execute_agent_raw <prompt_string> <output_file> [timeout_seconds] [role]
 execute_agent_raw() {
     local prompt_string=$1
     local output_file=$2
     local timeout_seconds=${3:-$((AGENT_TIMEOUT_MINUTES * 60))}
+    local role=${4:-}
+    
+    # Get role-specific model if role is provided
+    local model_override=""
+    if [[ -n "$role" ]]; then
+        model_override=$(get_model_for_role "$role")
+    fi
     
     case "$AGENT_CLI_TOOL" in
         cursor-agent)
-            execute_cursor_agent_raw "$prompt_string" "$output_file" "$timeout_seconds"
+            execute_cursor_agent_raw "$prompt_string" "$output_file" "$timeout_seconds" "$model_override"
             ;;
         opencode)
-            execute_opencode_raw "$prompt_string" "$output_file" "$timeout_seconds"
+            execute_opencode_raw "$prompt_string" "$output_file" "$timeout_seconds" "$model_override"
             ;;
         *)
             log_status "ERROR" "Unknown agent CLI tool: $AGENT_CLI_TOOL"
@@ -472,13 +508,14 @@ generate_context_json() {
 # ============================================================================
 
 # Execute cursor-agent with prompt file
-# Usage: execute_cursor_agent <prompt_file> <output_file> [timeout_seconds]
+# Usage: execute_cursor_agent <prompt_file> <output_file> [timeout_seconds] [model_override]
 # Returns: 0 on success, 1 on error, 124 on timeout
 # ERROR-PROOF: This function will NOT cause script exit due to set -e
 execute_cursor_agent() {
     local prompt_file=$1
     local output_file=$2
     local timeout_seconds=${3:-$((CURSOR_TIMEOUT_MINUTES * 60))}
+    local model_override=${4:-}
     local max_retries=${CURSOR_AGENT_MAX_RETRIES:-3}
     local retry_delay=${CURSOR_AGENT_RETRY_DELAY:-10}
     
@@ -500,9 +537,10 @@ execute_cursor_agent() {
     # Build cursor-agent command arguments
     local cmd_args=("-p")
     
-    # Add model if specified
-    if [[ -n "$CURSOR_MODEL" ]]; then
-        cmd_args+=("--model" "$CURSOR_MODEL")
+    # Use model override if provided, otherwise fall back to CURSOR_MODEL
+    local effective_model="${model_override:-$CURSOR_MODEL}"
+    if [[ -n "$effective_model" ]]; then
+        cmd_args+=("--model" "$effective_model")
     fi
     
     # Add output format if specified
@@ -608,16 +646,20 @@ execute_cursor_agent() {
 }
 
 # Execute cursor-agent with raw prompt string (not from file)
+# Usage: execute_cursor_agent_raw <prompt_string> <output_file> [timeout_seconds] [model_override]
 # ERROR-PROOF: This function will NOT cause script exit due to set -e
 execute_cursor_agent_raw() {
     local prompt_string=$1
     local output_file=$2
     local timeout_seconds=${3:-$((CURSOR_TIMEOUT_MINUTES * 60))}
+    local model_override=${4:-}
     
     local cmd_args=("-p")
     
-    if [[ -n "$CURSOR_MODEL" ]]; then
-        cmd_args+=("--model" "$CURSOR_MODEL")
+    # Use model override if provided, otherwise fall back to CURSOR_MODEL
+    local effective_model="${model_override:-$CURSOR_MODEL}"
+    if [[ -n "$effective_model" ]]; then
+        cmd_args+=("--model" "$effective_model")
     fi
     
     cmd_args+=("$prompt_string")
@@ -686,11 +728,12 @@ init_opencode_project_config() {
 }
 
 # Execute opencode with prompt file
-# Usage: execute_opencode <prompt_file> <output_file> [timeout_seconds]
+# Usage: execute_opencode <prompt_file> <output_file> [timeout_seconds] [model_override]
 execute_opencode() {
     local prompt_file=$1
     local output_file=$2
     local timeout_seconds=${3:-$((AGENT_TIMEOUT_MINUTES * 60))}
+    local model_override=${4:-}
     
     # Validate prompt file exists
     if [[ ! -f "$prompt_file" ]]; then
@@ -708,16 +751,17 @@ execute_opencode() {
     # Build opencode command arguments
     local cmd_args=("run")
     
-    # Add model if specified
-    if [[ -n "$AGENT_MODEL" ]]; then
-        cmd_args+=("--model" "$AGENT_MODEL")
+    # Use model override if provided, otherwise fall back to AGENT_MODEL
+    local effective_model="${model_override:-$AGENT_MODEL}"
+    if [[ -n "$effective_model" ]]; then
+        cmd_args+=("--model" "$effective_model")
     fi
     
     # Add the prompt as the final argument
     cmd_args+=("$prompt_content")
     
     log_status "INFO" "Executing opencode (timeout: ${timeout_seconds}s)..."
-    log_debug "Using model: ${AGENT_MODEL}"
+    log_debug "Using model: ${effective_model}"
     log_debug "Command: opencode ${cmd_args[*]:0:2} <prompt-content>"
     
     # Execute with timeout (--kill-after ensures SIGKILL if SIGTERM fails)
@@ -735,15 +779,19 @@ execute_opencode() {
 }
 
 # Execute opencode with raw prompt string (not from file)
+# Usage: execute_opencode_raw <prompt_string> <output_file> [timeout_seconds] [model_override]
 execute_opencode_raw() {
     local prompt_string=$1
     local output_file=$2
     local timeout_seconds=${3:-$((AGENT_TIMEOUT_MINUTES * 60))}
+    local model_override=${4:-}
     
     local cmd_args=("run")
     
-    if [[ -n "$AGENT_MODEL" ]]; then
-        cmd_args+=("--model" "$AGENT_MODEL")
+    # Use model override if provided, otherwise fall back to AGENT_MODEL
+    local effective_model="${model_override:-$AGENT_MODEL}"
+    if [[ -n "$effective_model" ]]; then
+        cmd_args+=("--model" "$effective_model")
     fi
     
     cmd_args+=("$prompt_string")
@@ -1053,11 +1101,14 @@ run_agent() {
     # Create output file to ensure it exists
     touch "$output_file" 2>/dev/null || true
     
-    log_status "INFO" "Running $role agent for $phase phase (sprint $sprint_id)"
+    # Get the model that will be used for this role
+    local role_model=$(get_model_for_role "$role")
+    log_status "INFO" "Running $role agent for $phase phase (sprint $sprint_id) using model: $role_model"
     
     # Execute agent (error-proof - captures exit code without triggering set -e)
+    # Pass role as 4th parameter for role-specific model selection
     local exit_code=0
-    execute_agent "$prompt_file" "$output_file" || exit_code=$?
+    execute_agent "$prompt_file" "$output_file" "" "$role" || exit_code=$?
     
     log_debug "Agent execution returned: $exit_code"
     
@@ -1222,6 +1273,7 @@ export -f execute_opencode_raw
 # Export common functions
 export -f detect_agent_cli_tool
 export -f get_agent_model
+export -f get_model_for_role
 export -f get_agent_timeout
 export -f generate_prompt
 export -f generate_context_json
