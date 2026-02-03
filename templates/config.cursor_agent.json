@@ -31,7 +31,13 @@
     "cli_tool": "cursor-agent",
     "model": "opus-4.5-thinking",
     "timeout_minutes": 15,
-    "output_format": "text"
+    "output_format": "text",
+    "models_by_role": {
+      "developer": "gpt-5.2-codex-xhigh-fast",
+      "qa": "opus-4.5-thinking",
+      "product_owner": "opus-4.5-thinking",
+      "final_qa": "gpt-5.2-codex-xhigh-fast"
+    }
   },
   "paths": {
     "backlog_file": "backlog.json",

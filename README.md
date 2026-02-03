@@ -27,13 +27,13 @@ Sprinty is an **autonomous agile development system** that manages multi-agent c
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  Sprint 0: Initialization                                     │
+│  Sprint 0: Initialization                                    │
 │  └─ Product Owner parses PRD & creates prioritized backlog   │
 └──────────────────────────────────────────────────────────────┘
                           ↓
 ┌──────────────────────────────────────────────────────────────┐
-│  Sprint 1-N: Iterative Development                            │
-│                                                                │
+│  Sprint 1-N: Iterative Development                           │
+│                                                              │
 │  📋 Planning    → PO selects tasks for sprint                │
 │  💻 Development → Developer implements with tests             │
 │  🧪 QA          → QA verifies acceptance criteria             │
@@ -867,6 +867,32 @@ curl https://cursor.com/install -fsS | bash
 - `opus-4.5` - Claude Opus without thinking
 - `sonnet-4.5-thinking` - Claude Sonnet with thinking (faster)
 - `sonnet-4.5` - Claude Sonnet (fastest)
+
+#### Per-Agent Role Model Configuration
+
+You can configure different models for each agent role (developer, qa, product_owner, final_qa). This is useful for optimizing costs or capabilities:
+
+```json
+{
+  "agent": {
+    "cli_tool": "cursor-agent",
+    "model": "opus-4.5-thinking",
+    "models_by_role": {
+      "developer": "gpt-5.2-codex-xhigh-fast",
+      "qa": "opus-4.5-thinking",
+      "product_owner": "opus-4.5-thinking",
+      "final_qa": "gpt-5.2-codex-xhigh-fast"
+    }
+  }
+}
+```
+
+**Example use cases:**
+- Use a more capable model (opus) for complex developer tasks
+- Use a faster/cheaper model (sonnet) for QA validation
+- Use the thinking model for planning, non-thinking for simple tasks
+
+If a role is not specified in `models_by_role`, it falls back to the default `model` setting.
 
 #### Comparison
 

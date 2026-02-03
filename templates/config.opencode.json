@@ -31,7 +31,13 @@
     "cli_tool": "opencode",
     "model": "opencode/minimax-m2.1-free",
     "timeout_minutes": 15,
-    "output_format": "text"
+    "output_format": "text",
+    "models_by_role": {
+      "developer": "opencode/minimax-m2.1-free",
+      "qa": "opencode/minimax-m2.1-free",
+      "product_owner": "opencode/minimax-m2.1-free",
+      "final_qa": "opencode/minimax-m2.1-free"
+    }
   },
   "paths": {
     "backlog_file": "backlog.json",
